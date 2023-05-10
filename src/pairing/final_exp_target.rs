@@ -204,13 +204,36 @@ mod tests {
     const D: usize = 2;
 
     #[test]
-    fn test_final_exp() {
+    fn test_final_exp_narrow() {
         let rng = &mut rand::thread_rng();
         let Q = G2Affine::rand(rng);
         let P = G1Affine::rand(rng);
         let input = miller_loop_native(&Q, &P);
 
         let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let input_t = Fq12Target::constant(&mut builder, input.into());
+        let output = final_exp(&mut builder, input_t);
+        let output_expected = final_exp_native(input);
+
+        let output_expected_t = Fq12Target::constant(&mut builder, output_expected.into());
+
+        Fq12Target::connect(&mut builder, &output, &output_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        dbg!(data.common.degree_bits());
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_final_exp_wide() {
+        let rng = &mut rand::thread_rng();
+        let Q = G2Affine::rand(rng);
+        let P = G1Affine::rand(rng);
+        let input = miller_loop_native(&Q, &P);
+
+        let config = CircuitConfig::wide_ecc_config();
         let mut builder = CircuitBuilder::<F, D>::new(config);
         let input_t = Fq12Target::constant(&mut builder, input.into());
         let output = final_exp(&mut builder, input_t);
