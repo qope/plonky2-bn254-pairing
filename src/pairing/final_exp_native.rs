@@ -10,7 +10,7 @@ use num_traits::One;
 
 use crate::fields::native::MyFq12;
 
-use crate::pairing::pairing_native::conjugate_fp2;
+use crate::pairing::miller_loop_native::conjugate_fp2;
 
 pub const BN_X: u64 = 4965661367192848881;
 
@@ -222,7 +222,7 @@ mod tests {
 
     use crate::{
         fields::debug_tools::print_ark_fq,
-        pairing::pairing_native::{miller_loop, multi_miller_loop},
+        pairing::miller_loop_native::{miller_loop, multi_miller_loop},
     };
 
     use super::final_exp;

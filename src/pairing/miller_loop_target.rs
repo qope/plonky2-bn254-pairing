@@ -2,7 +2,7 @@
 use crate::curves::{g1curve_target::G1Target, g2curve_target::G2Target};
 use crate::fields::fq12_target::Fq12Target;
 use crate::fields::{debug_tools::print_fq_target, fq2_target::Fq2Target, fq_target::FqTarget};
-use crate::pairing::pairing_native::SIX_U_PLUS_2_NAF;
+use crate::pairing::miller_loop_native::SIX_U_PLUS_2_NAF;
 use ark_bn254::{Fq, Fq2};
 use ark_ff::Field;
 use ark_std::One;
@@ -368,10 +368,10 @@ mod tests {
 
     use super::miller_loop;
     use crate::pairing::{
-        pairing_native::{
+        miller_loop_native::{
             miller_loop as miller_loop_native, multi_miller_loop as multi_miller_loop_native,
         },
-        pairing_target::multi_miller_loop,
+        miller_loop_target::multi_miller_loop,
     };
     use crate::{
         curves::{g1curve_target::G1Target, g2curve_target::G2Target},
