@@ -2,10 +2,13 @@ use ark_bn254::Fq;
 use itertools::Itertools;
 use num::Zero;
 use plonky2::{
-    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
+    field::extension::Extendable,
+    hash::hash_types::RichField,
+    iop::target::{BoolTarget, Target},
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::nonnative::{CircuitBuilderNonNative, NonNativeTarget};
+use plonky2_u32::gadgets::arithmetic_u32::U32Target;
 use std::marker::PhantomData;
 
 use crate::fields::bn254base::Bn254Base;
@@ -72,6 +75,14 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
 
     pub fn constant(builder: &mut CircuitBuilder<F, D>, c: Fq) -> Self {
         let target = builder.constant_nonnative(c.into());
+        Self {
+            target,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn from_bool(builder: &mut CircuitBuilder<F, D>, b: &BoolTarget) -> Self {
+        let target = builder.bool_to_nonnative::<Bn254Base>(&b);
         Self {
             target,
             _marker: PhantomData,

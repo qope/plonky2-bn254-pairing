@@ -2,6 +2,7 @@ use ark_bn254::{Fq, Fq2};
 use ark_ff::Field;
 use itertools::Itertools;
 use num_bigint::BigUint;
+use num_traits::Zero;
 use plonky2::{
     field::extension::Extendable,
     hash::hash_types::RichField,
@@ -170,17 +171,38 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
         }
     }
 
+    // this method fails if self is zero
     pub fn inv(&self, builder: &mut CircuitBuilder<F, D>) -> Self {
         let inv = Self::new(builder);
         builder.add_simple_generator(Fq2InverseGenerator::<F, D> {
             x: self.clone(),
             inv: inv.clone(),
         });
-
         let one = Self::constant(builder, Fq2::ONE);
         let x_mul_inv = self.mul(builder, &inv);
         Self::connect(builder, &x_mul_inv, &one);
         inv
+    }
+
+    // this method returns zero if self is zero
+    pub fn inv0(&self, builder: &mut CircuitBuilder<F, D>) -> Self {
+        let inv = Self::new(builder);
+        builder.add_simple_generator(Fq2InverseGenerator::<F, D> {
+            x: self.clone(),
+            inv: inv.clone(),
+        });
+        let is_zero = self.is_zero(builder);
+        let is_not_zero = builder.not(is_zero);
+        let is_not_zero_fq = FqTarget::from_bool(builder, &is_not_zero);
+        let is_not_zero_fq2 = Fq2Target {
+            coeffs: [is_not_zero_fq, FqTarget::constant(builder, Fq::zero())],
+        };
+
+        let out = inv.mul(builder, &is_not_zero_fq2); // out = inv*is_not_zero
+        let in_out = self.mul(builder, &out);
+        Self::connect(builder, &in_out, &is_not_zero_fq2); // out * in = is_not_zero
+
+        out
     }
 
     pub fn div(&self, builder: &mut CircuitBuilder<F, D>, rhs: &Self) -> Self {
@@ -230,7 +252,10 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F>
             .map(|x| from_biguint_to_fq(witness.get_biguint_target(x.target.value.clone())))
             .collect_vec();
         let x = Fq2::new(coeffs[0], coeffs[1]);
-        let inv_x: Fq2 = x.inverse().unwrap();
+        let inv_x: Fq2 = match x.inverse() {
+            Some(inv_x) => inv_x,
+            None => Fq2::zero(),
+        };
         let inv_x_biguint: Vec<BigUint> = [inv_x.c0, inv_x.c1]
             .iter()
             .cloned()
@@ -248,7 +273,7 @@ mod tests {
     use ark_bn254::{Fq, Fq2};
     use ark_ff::Field;
     use ark_std::UniformRand;
-    use num_traits::Zero;
+    use num_traits::{One, Zero};
     use plonky2::{
         field::{goldilocks_field::GoldilocksField, types::Field as plonky2_field},
         iop::witness::{PartialWitness, WitnessWrite},
@@ -319,6 +344,82 @@ mod tests {
 
         let mut pw = PartialWitness::new();
         pw.set_target(is_zero.target, F::ONE);
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_inv0_input_nonzero_success() {
+        let rng = &mut rand::thread_rng();
+        let x: Fq2 = Fq2::rand(rng);
+        let inv_x_expected = x.inverse().unwrap();
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let x_t = Fq2Target::constant(&mut builder, x);
+        let inv0_x_t = x_t.inv0(&mut builder);
+        let inv0_x_expected_t = Fq2Target::constant(&mut builder, inv_x_expected);
+
+        Fq2Target::connect(&mut builder, &inv0_x_t, &inv0_x_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_inv0_input_nonzero_fail() {
+        let rng = &mut rand::thread_rng();
+        let x: Fq2 = Fq2::rand(rng);
+        let inv_x_expected = x.inverse().unwrap() + Fq2::ONE;
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let x_t = Fq2Target::constant(&mut builder, x);
+        let inv0_x_t = x_t.inv0(&mut builder);
+        let inv0_x_expected_t = Fq2Target::constant(&mut builder, inv_x_expected);
+
+        Fq2Target::connect(&mut builder, &inv0_x_t, &inv0_x_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_inv0_input_zero_success() {
+        let x = Fq2::zero();
+        let inv_x_expected = Fq2::zero();
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let x_t = Fq2Target::constant(&mut builder, x);
+        let inv0_x_t = x_t.inv0(&mut builder);
+        let inv0_x_expected_t = Fq2Target::constant(&mut builder, inv_x_expected);
+
+        Fq2Target::connect(&mut builder, &inv0_x_t, &inv0_x_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_inv0_input_zero_fail() {
+        let x = Fq2::zero();
+        let inv_x_expected = Fq2::one();
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let x_t = Fq2Target::constant(&mut builder, x);
+        let inv0_x_t = x_t.inv0(&mut builder);
+        let inv0_x_expected_t = Fq2Target::constant(&mut builder, inv_x_expected);
+
+        Fq2Target::connect(&mut builder, &inv0_x_t, &inv0_x_expected_t);
+
+        let pw = PartialWitness::new();
         let data = builder.build::<C>();
         let _proof = data.prove(pw);
     }
