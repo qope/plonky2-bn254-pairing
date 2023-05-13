@@ -5,6 +5,8 @@ use ark_ff::{BigInt, PrimeField};
 use ark_std::Zero;
 use num_bigint::BigUint;
 
+use crate::pairing::final_exp_native::get_naf;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MyFq12 {
     pub(crate) coeffs: [Fq; 12],
@@ -155,6 +157,41 @@ pub fn from_biguint_to_fq(x: BigUint) -> Fq {
     let x: BigInt<4> = x.try_into().unwrap();
     Fq::from_bigint(x).unwrap()
 }
+
+pub fn sgn0_fq(x: Fq) -> bool {
+    let y: BigUint = x.into();
+    y.to_u32_digits()[0] & 1 == 1
+}
+
+pub fn sgn0_fq2(x: Fq2) -> bool {
+    let sgn0_x = sgn0_fq(x.c0);
+    let zero_0 = x.c0.is_zero();
+    let sgn0_y = sgn0_fq(x.c1);
+    sgn0_x || (zero_0 && sgn0_y)
+}
+
+pub fn pow_fq(a: Fq, exp: Vec<u64>) -> Fq {
+    let mut res = a.clone();
+    let mut is_started = false;
+    let naf = get_naf(exp);
+    for &z in naf.iter().rev() {
+        if is_started {
+            res = res * res;
+        }
+        if z != 0 {
+            assert!(z == 1 || z == -1);
+            if is_started {
+                res = if z == 1 { res * a } else { res / a };
+            } else {
+                assert_eq!(z, 1);
+                is_started = true;
+            }
+        }
+    }
+    res
+}
+
+
 
 #[cfg(test)]
 mod tests {

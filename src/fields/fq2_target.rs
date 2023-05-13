@@ -1,15 +1,15 @@
 use ark_bn254::{Fq, Fq2};
-use ark_ff::Field;
+use ark_ff::{Field, MontFp};
 use itertools::Itertools;
 use num_bigint::BigUint;
-use num_traits::Zero;
+use num_traits::{One, Zero};
 use plonky2::{
     field::extension::Extendable,
     hash::hash_types::RichField,
     iop::{
         generator::{GeneratedValues, SimpleGenerator},
         target::{BoolTarget, Target},
-        witness::PartitionWitness,
+        witness::{PartitionWitness, Witness},
     },
     plonk::circuit_builder::CircuitBuilder,
 };
@@ -19,6 +19,11 @@ use plonky2_ecdsa::gadgets::{
 };
 
 use crate::fields::{fq_target::FqTarget, native::from_biguint_to_fq};
+
+use super::{
+    debug_tools::print_fq_target,
+    native::{sgn0_fq, sgn0_fq2},
+};
 
 #[derive(Debug, Clone)]
 pub struct Fq2Target<F: RichField + Extendable<D>, const D: usize> {
@@ -225,6 +230,147 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
             coeffs: [c0.neg(builder), c1],
         }
     }
+
+    pub fn sgn0(&self, builder: &mut CircuitBuilder<F, D>) -> BoolTarget {
+        let sgn_x = self.coeffs[0].sgn0(builder);
+        let is_zero = self.coeffs[0].is_zero(builder);
+        let sgn_y = self.coeffs[1].sgn0(builder);
+        let is_zero_and_sgn_y = builder.and(is_zero, sgn_y.clone());
+        builder.or(sgn_x, is_zero_and_sgn_y)
+    }
+
+    pub fn is_square(&self, builder: &mut CircuitBuilder<F, D>) -> BoolTarget {
+        let x = self.coeffs[0].clone();
+        let y = self.coeffs[1].clone();
+        let x_sq = x.mul(builder, &x);
+        let y_sq = y.mul(builder, &y);
+        let norm = x_sq.add(builder, &y_sq);
+        norm.is_square(builder)
+    }
+
+    // if self is not square, this fails
+    // the return value is ensured to be sgn0(x) = sgn0(sgn)
+    pub fn sqrt_with_sgn(&self, builder: &mut CircuitBuilder<F, D>, sgn: BoolTarget) -> Self {
+        let sqrt = Self::new(builder);
+        builder.add_simple_generator(Fq2SqrtGenerator::<F, D> {
+            x: self.clone(),
+            sgn: sgn.clone(),
+            sqrt: sqrt.clone(),
+        });
+
+        // sqrt^2 = x
+        let sqrt_sq = sqrt.mul(builder, &sqrt);
+        Self::connect(builder, &sqrt_sq, self);
+
+        // sgn0(sqrt) = sgn0(sgn)
+        let sgn0_sqrt = sqrt.sgn0(builder);
+        builder.connect(sgn0_sqrt.target, sgn.target);
+
+        sqrt
+    }
+
+    pub fn map_to_g2(&self, builder: &mut CircuitBuilder<F, D>) -> (Self, Self) {
+        // constants
+        let Z = Fq2::one();
+        let B = Fq2::new(
+            MontFp!(
+                "19485874751759354771024239261021720505790618469301721065564631296452457478373"
+            ),
+            MontFp!("266929791119991161246907387137283842545076965332900288569378510910307636690"),
+        );
+        let g = |x: Fq2| -> Fq2 { x * x * x + B };
+        let g_target =
+            |x: &Fq2Target<F, D>, builder: &mut CircuitBuilder<F, D>| -> Fq2Target<F, D> {
+                let x_cub = x.mul(builder, &x).mul(builder, &x);
+                let b = Fq2Target::constant(builder, B);
+                let x_cub_plus_b = x_cub.add(builder, &b);
+                x_cub_plus_b
+            };
+        let gz = g(Z);
+        // let term = -(Fq2::from(3) * Z * Z) / (Fq2::from(4) * gz);
+        // let sq_term = term.sqrt().unwrap();
+        let sgn0_fq = |x: Fq| -> bool {
+            let y: BigUint = x.into();
+            y.to_u32_digits()[0] & 1 == 1
+        };
+        let sgn0 = |x: Fq2| -> bool {
+            let sgn0_x = sgn0_fq(x.c0);
+            let zero_0 = x.c0.is_zero();
+            let sgn0_y = sgn0_fq(x.c1);
+            sgn0_x || (zero_0 && sgn0_y)
+        };
+        let neg_two_by_z = -Z / (Fq2::from(2));
+        let tv4 = (-gz * Fq2::from(3) * Z * Z).sqrt().unwrap();
+        let tv6 = -Fq2::from(4) * gz / (Fq2::from(3) * Z * Z);
+        // end of constants
+        let Z = Self::constant(builder, Z);
+        let gz = Self::constant(builder, gz);
+        let tv4 = Self::constant(builder, tv4);
+        let tv6 = Self::constant(builder, tv6);
+        let neg_two_by_z = Self::constant(builder, neg_two_by_z);
+        let one = Self::constant(builder, Fq2::one());
+
+        let u = self.clone();
+        // let tv1 = u * u * gz;
+        // let tv2 = Fq2::one() + tv1;
+        // let tv1 = Fq2::one() - tv1;
+        // let tv3 = inv0(tv1 * tv2);
+        // let tv5 = u * tv1 * tv3 * tv4;
+        // let x1 = neg_two_by_z - tv5;
+        // let x2 = neg_two_by_z + tv5;
+        // let x3 = Z + tv6 * (tv2 * tv2 * tv3) * (tv2 * tv2 * tv3);
+        // let is_gx1_sq = g(x1).legendre().is_qr();
+        // let is_gx2_sq = g(x2).legendre().is_qr();
+        let tv1 = u.mul(builder, &u).mul(builder, &gz);
+        let tv2 = one.add(builder, &tv1);
+        let tv1 = one.sub(builder, &tv1);
+        let tv3 = tv1.mul(builder, &tv2).inv0(builder);
+        let tv5 = u.mul(builder, &tv1).mul(builder, &tv3).mul(builder, &tv4);
+        let x1 = neg_two_by_z.sub(builder, &tv5);
+        let x2 = neg_two_by_z.add(builder, &tv5);
+        let tv2tv2tv3 = tv2.mul(builder, &tv2).mul(builder, &tv3);
+        let tv2tv2tv3_sq = tv2tv2tv3.mul(builder, &tv2tv2tv3);
+        let tv6_tv2tv2tv3_sq = tv6.mul(builder, &tv2tv2tv3_sq);
+        let x3 = Z.add(builder, &tv6_tv2tv2tv3_sq);
+        let gx1 = g_target(&x1, builder);
+        let gx2 = g_target(&x2, builder);
+        let is_gx1_sq = gx1.is_square(builder);
+        let is_gx2_sq = gx2.is_square(builder);
+
+        print_fq_target(builder, &x1.coeffs[0], "x1.coeffs[0]".to_string());
+
+        let x1_or_x2 = Self::select(builder, &x1, &x2, &is_gx1_sq);
+        let isgx1_xor_isgx2 = xor_circuit(is_gx1_sq, is_gx2_sq, builder);
+        let x = Self::select(builder, &x1_or_x2, &x3, &isgx1_xor_isgx2);
+
+        let gx = g_target(&x, builder);
+        let sgn_u = u.sgn0(builder);
+        let y = gx.sqrt_with_sgn(builder, sgn_u);
+
+        (x, y)
+    }
+}
+
+pub fn xor_circuit<F, const D: usize>(
+    a: BoolTarget,
+    b: BoolTarget,
+    builder: &mut CircuitBuilder<F, D>,
+) -> BoolTarget
+where
+    F: RichField + Extendable<D>,
+{
+    // a = 0, b = 0 => 0
+    // a = 1, b = 0 => 1
+    // a = 0, b = 1 => 1
+    // a = 1, b = 1 => 0
+    // xor(a, b) = a*(1-b) + (1-a)*b = a + b - 2*ab
+    let ab = builder.mul(a.target, b.target);
+    let a_plus_b = builder.add(a.target, b.target);
+    let neg_two = F::NEG_ONE * F::TWO;
+    let a_plus_b_neg_two_ab = builder.mul_const_add(neg_two, ab, a_plus_b);
+    let c = builder.add_virtual_bool_target_safe();
+    builder.connect(c.target, a_plus_b_neg_two_ab);
+    c
 }
 
 #[derive(Debug)]
@@ -268,11 +414,59 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F>
     }
 }
 
+#[derive(Debug)]
+struct Fq2SqrtGenerator<F: RichField + Extendable<D>, const D: usize> {
+    x: Fq2Target<F, D>,
+    sgn: BoolTarget,
+    sqrt: Fq2Target<F, D>,
+}
+
+impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F> for Fq2SqrtGenerator<F, D> {
+    fn dependencies(&self) -> Vec<Target> {
+        let mut x_vec = self
+            .x
+            .coeffs
+            .iter()
+            .flat_map(|coeff| coeff.target.value.limbs.iter().map(|&l| l.0))
+            .collect_vec();
+        x_vec.push(self.sgn.target);
+        x_vec
+    }
+
+    fn run_once(&self, witness: &PartitionWitness<F>, out_buffer: &mut GeneratedValues<F>) {
+        let coeffs: Vec<Fq> = self
+            .x
+            .coeffs
+            .iter()
+            .map(|x| from_biguint_to_fq(witness.get_biguint_target(x.target.value.clone())))
+            .collect_vec();
+        let sgn_val = witness.get_target(self.sgn.target);
+        let x = Fq2::new(coeffs[0], coeffs[1]);
+        let mut sqrt_x: Fq2 = x.sqrt().unwrap();
+        let desired_sgn = sgn_val.to_canonical_u64() % 2 == 1;
+        let sng0_x = sgn0_fq2(sqrt_x);
+        if sng0_x != desired_sgn {
+            sqrt_x = -sqrt_x;
+        }
+        assert_eq!(sgn0_fq2(sqrt_x), desired_sgn);
+        let sqrt_x_biguint: Vec<BigUint> = [sqrt_x.c0, sqrt_x.c1]
+            .iter()
+            .cloned()
+            .map(|coeff| coeff.into())
+            .collect_vec();
+
+        for i in 0..2 {
+            out_buffer.set_biguint_target(&self.sqrt.coeffs[i].target.value, &sqrt_x_biguint[i]);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use ark_bn254::{Fq, Fq2};
-    use ark_ff::Field;
+    use ark_bn254::{Fq, Fq2, G2Affine};
+    use ark_ff::{Field, MontFp};
     use ark_std::UniformRand;
+    use num_bigint::BigUint;
     use num_traits::{One, Zero};
     use plonky2::{
         field::{goldilocks_field::GoldilocksField, types::Field as plonky2_field},
@@ -282,6 +476,9 @@ mod tests {
             config::PoseidonGoldilocksConfig,
         },
     };
+    use rand::Rng;
+
+    use crate::fields::{debug_tools::print_ark_fq, native::sgn0_fq2};
 
     use super::Fq2Target;
 
@@ -305,6 +502,109 @@ mod tests {
 
         let pw = PartialWitness::new();
         let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    fn map_to_curve(u: Fq2) -> G2Affine {
+        // constants
+        let Z = Fq2::one();
+        let B = Fq2::new(
+            MontFp!(
+                "19485874751759354771024239261021720505790618469301721065564631296452457478373"
+            ),
+            MontFp!("266929791119991161246907387137283842545076965332900288569378510910307636690"),
+        );
+        let g = |x: Fq2| -> Fq2 { x * x * x + B };
+        let gz = g(Z);
+        // let term = -(Fq2::from(3) * Z * Z) / (Fq2::from(4) * gz);
+        // let sq_term = term.sqrt().unwrap();
+        let neg_two: BigUint = Fq::from(-2).into();
+        let inv_fq = |x: Fq| -> Fq { x.pow(neg_two.to_u64_digits()) };
+        let inv0 = |x: Fq2| -> Fq2 {
+            let t0 = inv_fq(x.c0 * x.c0 + x.c1 * x.c1);
+            let bx = x.c0 * t0;
+            let by = -x.c1 * t0;
+            Fq2::new(bx, by)
+        };
+
+        let sgn0_fq = |x: Fq| -> bool {
+            let y: BigUint = x.into();
+            y.to_u32_digits()[0] & 1 == 1
+        };
+        let sgn0 = |x: Fq2| -> bool {
+            let sgn0_x = sgn0_fq(x.c0);
+            let zero_0 = x.c0.is_zero();
+            let sgn0_y = sgn0_fq(x.c1);
+            sgn0_x || (zero_0 && sgn0_y)
+        };
+        let neg_two_by_z = -Z / (Fq2::from(2));
+        let tv4 = (-gz * Fq2::from(3) * Z * Z).sqrt().unwrap();
+        // let tv4 = -tv4;
+        // dbg!(sgn0(tv4));
+        let tv6 = -Fq2::from(4) * gz / (Fq2::from(3) * Z * Z);
+        // end of constants
+
+        let tv1 = u * u * gz;
+        let tv2 = Fq2::one() + tv1;
+        let tv1 = Fq2::one() - tv1;
+        let tv3 = inv0(tv1 * tv2);
+        let tv5 = u * tv1 * tv3 * tv4;
+        let x1 = neg_two_by_z - tv5;
+        let x2 = neg_two_by_z + tv5;
+        let x3 = Z + tv6 * (tv2 * tv2 * tv3) * (tv2 * tv2 * tv3);
+        let is_gx1_sq = g(x1).legendre().is_qr();
+        let is_gx2_sq = g(x2).legendre().is_qr();
+        let is_gx3_sq = g(x3).legendre().is_qr();
+
+        print_ark_fq(x1.c0, "x1.c0".to_string());
+        dbg!(is_gx1_sq, is_gx2_sq, is_gx3_sq);
+
+        let x: Fq2;
+        let mut y: Fq2;
+
+        if is_gx1_sq {
+            x = x1;
+            y = g(x1).sqrt().unwrap();
+        } else if is_gx2_sq {
+            x = x2;
+            y = g(x2).sqrt().unwrap();
+        } else {
+            x = x3;
+            y = g(x3).sqrt().unwrap();
+        }
+
+        if sgn0(u) != sgn0(y) {
+            y = -y;
+        }
+
+        assert!(g(x) == y * y);
+
+        G2Affine::new_unchecked(x, y)
+    }
+
+    #[test]
+    fn test_map_to_curve() {
+        let rng = &mut rand::thread_rng();
+        let a: Fq2 = Fq2::rand(rng);
+        let p_expected = map_to_curve(a);
+        let x_expected = p_expected.x;
+        let y_expected = p_expected.y;
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let a_t = Fq2Target::constant(&mut builder, a);
+        let p_t = a_t.map_to_g2(&mut builder);
+        let x_t = p_t.0;
+        let y_t = p_t.1;
+        let x_expected_t = Fq2Target::constant(&mut builder, x_expected);
+        let y_expected_t = Fq2Target::constant(&mut builder, y_expected);
+
+        // Fq2Target::connect(&mut builder, &x_t, &x_expected_t);
+        // Fq2Target::connect(&mut builder, &y_t, &y_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        dbg!(data.common.degree_bits());
         let _proof = data.prove(pw);
     }
 
@@ -418,6 +718,58 @@ mod tests {
         let inv0_x_expected_t = Fq2Target::constant(&mut builder, inv_x_expected);
 
         Fq2Target::connect(&mut builder, &inv0_x_t, &inv0_x_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_sgn0() {
+        let rng = &mut rand::thread_rng();
+        let a: Fq2 = Fq2::rand(rng);
+        let expected_a_sgn0 = sgn0_fq2(a);
+        dbg!(expected_a_sgn0);
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let a_t = Fq2Target::constant(&mut builder, a);
+        let sgn0_a_t = a_t.sgn0(&mut builder);
+        let expected_sgn0_a_t = builder.constant_bool(expected_a_sgn0);
+
+        builder.connect(sgn0_a_t.target, expected_sgn0_a_t.target);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_sqrt_with_sgn() {
+        let rng = &mut rand::thread_rng();
+        let a: Fq2 = {
+            // resample a until it is a square
+            let mut a = Fq2::rand(rng);
+            while !a.legendre().is_qr() {
+                a = Fq2::rand(rng);
+            }
+            a
+        };
+        assert!(a.legendre().is_qr());
+        let sgn: bool = rng.gen();
+        let sqrt = a.sqrt().unwrap();
+        let expected_sqrt = if sgn == sgn0_fq2(sqrt) { sqrt } else { -sqrt };
+        assert_eq!(expected_sqrt * expected_sqrt, a);
+        assert_eq!(sgn0_fq2(expected_sqrt), sgn);
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let a_t = Fq2Target::constant(&mut builder, a);
+        let sgn_t = builder.constant_bool(sgn);
+        let sqrt_t = a_t.sqrt_with_sgn(&mut builder, sgn_t);
+        let expected_sqrt_t = Fq2Target::constant(&mut builder, expected_sqrt);
+
+        Fq2Target::connect(&mut builder, &sqrt_t, &expected_sqrt_t);
 
         let pw = PartialWitness::new();
         let data = builder.build::<C>();
