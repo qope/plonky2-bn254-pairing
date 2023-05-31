@@ -3,6 +3,7 @@ use core::hash::{Hash, Hasher};
 use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
+use ark_bn254::Fr;
 use itertools::Itertools;
 use num::bigint::BigUint;
 use num::{Integer, One};
@@ -252,6 +253,13 @@ impl Div for Bn254Scalar {
 impl DivAssign for Bn254Scalar {
     fn div_assign(&mut self, rhs: Self) {
         *self = *self / rhs;
+    }
+}
+
+impl From<Fr> for Bn254Scalar {
+    fn from(value: Fr) -> Self {
+        let biguint = value.into();
+        Bn254Scalar::from_noncanonical_biguint(biguint)
     }
 }
 
