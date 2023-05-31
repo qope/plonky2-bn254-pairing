@@ -1,15 +1,18 @@
 use ark_bn254::Fq;
 use itertools::Itertools;
-use num::Zero;
+use num::{One, Zero};
+use num_bigint::BigUint;
 use plonky2::{
-    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
+    field::extension::Extendable,
+    hash::hash_types::RichField,
+    iop::target::{BoolTarget, Target},
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::nonnative::{CircuitBuilderNonNative, NonNativeTarget};
 use plonky2_u32::gadgets::arithmetic_u32::U32Target;
 use std::marker::PhantomData;
 
-use crate::fields::bn254base::Bn254Base;
+use crate::{fields::bn254base::Bn254Base, pairing::final_exp_native::get_naf};
 
 #[derive(Clone, Debug)]
 pub struct FqTarget<F: RichField + Extendable<D>, const D: usize> {
@@ -87,6 +90,14 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         }
     }
 
+    pub fn from_bool(builder: &mut CircuitBuilder<F, D>, b: &BoolTarget) -> Self {
+        let target = builder.bool_to_nonnative::<Bn254Base>(&b);
+        Self {
+            target,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn zero(builder: &mut CircuitBuilder<F, D>) -> Self {
         Self::constant(builder, Fq::zero())
     }
@@ -136,33 +147,68 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         }
     }
 
-    pub fn add_many(builder: &mut CircuitBuilder<F, D>, to_add: &[Self]) -> Self {
-        let target =
-            builder.add_many_nonnative(&to_add.iter().map(|x| x.target.clone()).collect_vec());
-        Self {
-            target,
-            _marker: PhantomData,
-        }
+    pub fn div(&self, builder: &mut CircuitBuilder<F, D>, other: &Self) -> Self {
+        let inv = other.inv(builder);
+        self.mul(builder, &inv)
     }
 
-    pub fn mul_many(builder: &mut CircuitBuilder<F, D>, to_add: &[Self]) -> Self {
-        let target =
-            builder.mul_many_nonnative(&to_add.iter().map(|x| x.target.clone()).collect_vec());
-        Self {
-            target,
-            _marker: PhantomData,
+    // returns self % 2 == 1
+    pub fn sgn0(&self, builder: &mut CircuitBuilder<F, D>) -> BoolTarget {
+        let first_digit = self.target.value.limbs[0].0;
+        let bits = builder.split_le(first_digit, 32);
+        bits[0]
+    }
+
+    // TODO! have to consider self = zero case
+    pub fn pow(&self, builder: &mut CircuitBuilder<F, D>, exp: Vec<u64>) -> Self {
+        let a = self.clone();
+        let mut res = self.clone();
+        let mut is_started = false;
+        let naf = get_naf(exp);
+
+        for &z in naf.iter().rev() {
+            if is_started {
+                res = res.mul(builder, &res);
+            }
+
+            if z != 0 {
+                assert!(z == 1 || z == -1);
+                if is_started {
+                    res = if z == 1 {
+                        res.mul(builder, &a)
+                    } else {
+                        res.div(builder, &a)
+                    };
+                } else {
+                    assert_eq!(z, 1);
+                    is_started = true;
+                }
+            }
         }
+        res
+    }
+
+    pub fn legendre(&self, builder: &mut CircuitBuilder<F, D>) -> Self {
+        let k: BigUint = (Fq::from(-1) / Fq::from(2)).into();
+        self.pow(builder, k.to_u64_digits())
+    }
+
+    pub fn is_square(&self, builder: &mut CircuitBuilder<F, D>) -> BoolTarget {
+        let legendre = self.legendre(builder);
+        let one = FqTarget::constant(builder, Fq::one());
+        legendre.is_equal(builder, &one)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fq;
+    use ark_ff::Field;
     use ark_std::UniformRand;
     use ark_std::Zero;
 
     use plonky2::{
-        field::{goldilocks_field::GoldilocksField, types::Field},
+        field::{goldilocks_field::GoldilocksField, types::Field as Plonky2Field},
         iop::witness::{PartialWitness, WitnessWrite},
         plonk::{
             circuit_builder::CircuitBuilder, circuit_data::CircuitConfig,
@@ -240,5 +286,48 @@ mod tests {
         pw.set_target(is_zero.target, F::ONE);
         let data = builder.build::<C>();
         let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_sign0() {
+        let a = Fq::from(5);
+        let b = Fq::from(6);
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+
+        let a_t = FqTarget::constant(&mut builder, a);
+        let b_t = FqTarget::constant(&mut builder, b);
+
+        let a_sign0 = a_t.sgn0(&mut builder);
+        let b_sign0 = b_t.sgn0(&mut builder);
+
+        let mut pw = PartialWitness::new();
+        pw.set_target(a_sign0.target, F::ONE);
+        pw.set_target(b_sign0.target, F::ZERO);
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_is_square() {
+        let rng = &mut rand::thread_rng();
+        let a = Fq::rand(rng);
+        let a_is_sq_expected: bool = a.legendre().is_qr();
+        dbg!(a_is_sq_expected);
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+
+        let a_t = FqTarget::constant(&mut builder, a);
+        let a_is_sq = a_t.is_square(&mut builder);
+        let a_is_sq_expected_t = builder.constant_bool(a_is_sq_expected);
+
+        builder.connect(a_is_sq.target, a_is_sq_expected_t.target);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+        dbg!(data.common.degree_bits());
     }
 }
