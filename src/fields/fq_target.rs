@@ -6,6 +6,7 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::nonnative::{CircuitBuilderNonNative, NonNativeTarget};
+use plonky2_u32::gadgets::arithmetic_u32::U32Target;
 use std::marker::PhantomData;
 
 use crate::fields::bn254base::Bn254Base;
@@ -23,6 +24,14 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
             target,
             _marker: PhantomData,
         }
+    }
+
+    pub fn target(&self) -> NonNativeTarget<Bn254Base> {
+        self.target.clone()
+    }
+
+    pub fn limbs(&self) -> Vec<U32Target> {
+        self.target.value.limbs.iter().cloned().collect_vec()
     }
 
     pub fn construct(value: NonNativeTarget<Bn254Base>) -> Self {
