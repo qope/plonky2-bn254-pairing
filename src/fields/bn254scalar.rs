@@ -102,7 +102,7 @@ impl Field for Bn254Scalar {
         0x2A3C09F0A58A7E85,
     ]);
 
-    const BITS: usize = 256;
+    const BITS: usize = 254;
 
     fn order() -> BigUint {
         BigUint::from_slice(&[

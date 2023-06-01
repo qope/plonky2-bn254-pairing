@@ -1,10 +1,13 @@
 use ark_bn254::G2Affine;
+use ark_std::UniformRand;
 use plonky2::{
-    field::extension::Extendable, hash::hash_types::RichField,
+    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
     plonk::circuit_builder::CircuitBuilder,
 };
+use plonky2_ecdsa::gadgets::nonnative::CircuitBuilderNonNative;
+use rand::SeedableRng;
 
-use crate::fields::fq2_target::Fq2Target;
+use crate::fields::{fq2_target::Fq2Target, fr_target::FrTarget};
 
 #[derive(Clone, Debug)]
 pub struct G2Target<F: RichField + Extendable<D>, const D: usize> {
@@ -86,11 +89,51 @@ impl<F: RichField + Extendable<D>, const D: usize> G2Target<F, D> {
 
         G2Target { x: x3, y: y3 }
     }
+
+    pub fn conditional_add(
+        &self,
+        builder: &mut CircuitBuilder<F, D>,
+        p: &Self,
+        b: &BoolTarget,
+    ) -> Self {
+        let sum = self.add(builder, p);
+
+        let x = Fq2Target::select(builder, &sum.x, &self.x, b);
+        let y = Fq2Target::select(builder, &sum.y, &self.y, b);
+
+        Self { x, y }
+    }
+
+    pub fn pow_var_simple(&self, builder: &mut CircuitBuilder<F, D>, s: &FrTarget<F, D>) -> Self {
+        let bits = builder.split_nonnative_to_bits(&s.target);
+
+        let mut doubles = vec![];
+        let mut v = self.clone();
+        doubles.push(v.clone());
+        for _ in 1..bits.len() {
+            v = v.double(builder);
+            doubles.push(v.clone());
+        }
+
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let rando = G2Affine::rand(&mut rng);
+        let rando_t = G2Target::constant(builder, rando);
+        let neg_rando = G2Target::constant(builder, -rando);
+        let mut r = rando_t;
+
+        for i in 0..bits.len() {
+            r = r.conditional_add(builder, &doubles[i], &bits[i]);
+        }
+
+        r = r.add(builder, &neg_rando);
+
+        r
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use ark_bn254::G2Affine;
+    use ark_bn254::{Fr, G2Affine};
     use ark_std::UniformRand;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
@@ -100,6 +143,8 @@ mod tests {
             config::PoseidonGoldilocksConfig,
         },
     };
+
+    use crate::fields::fr_target::FrTarget;
 
     use super::G2Target;
 
@@ -160,6 +205,29 @@ mod tests {
         let c_expected_t = G2Target::constant(&mut builder, c_expected);
 
         G2Target::connect(&mut builder, &c_expected_t, &c_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_pow_var_simple_g2() {
+        let rng = &mut rand::thread_rng();
+
+        let p = G2Affine::rand(rng);
+        let n = Fr::rand(rng);
+        let r_expected: G2Affine = (p * n).into();
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let p_t = G2Target::constant(&mut builder, p);
+        let n_t = FrTarget::constant(&mut builder, n);
+
+        let r_t = p_t.pow_var_simple(&mut builder, &n_t);
+        let r_expected_t = G2Target::constant(&mut builder, r_expected);
+
+        G2Target::connect(&mut builder, &r_t, &r_expected_t);
 
         let pw = PartialWitness::new();
         let data = builder.build::<C>();

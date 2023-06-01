@@ -3,9 +3,7 @@ use itertools::Itertools;
 use num::{One, Zero};
 use num_bigint::BigUint;
 use plonky2::{
-    field::extension::Extendable,
-    hash::hash_types::RichField,
-    iop::target::{BoolTarget, Target},
+    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::nonnative::{CircuitBuilderNonNative, NonNativeTarget};

@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pow_var() {
+    fn test_pow_var_fq12() {
         let rng = &mut rand::thread_rng();
         let x = Fq12::rand(rng);
         let a = Fr::rand(rng);
