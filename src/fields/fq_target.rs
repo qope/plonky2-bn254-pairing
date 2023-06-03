@@ -35,6 +35,7 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         self.target.value.limbs.iter().cloned().collect_vec()
     }
 
+
     pub fn construct(value: NonNativeTarget<Bn254Base>) -> Self {
         Self {
             target: value,
