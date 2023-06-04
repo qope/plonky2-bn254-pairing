@@ -3,11 +3,16 @@ use itertools::Itertools;
 use num::{One, Zero};
 use num_bigint::BigUint;
 use plonky2::{
-    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
+    field::extension::Extendable,
+    hash::hash_types::RichField,
+    iop::target::{BoolTarget, Target},
     plonk::circuit_builder::CircuitBuilder,
 };
-use plonky2_ecdsa::gadgets::nonnative::{CircuitBuilderNonNative, NonNativeTarget};
-use plonky2_u32::gadgets::arithmetic_u32::U32Target;
+use plonky2_ecdsa::gadgets::{
+    biguint::BigUintTarget,
+    nonnative::{CircuitBuilderNonNative, NonNativeTarget},
+};
+use plonky2_u32::gadgets::{arithmetic_u32::U32Target, range_check::range_check_u32_circuit};
 use std::marker::PhantomData;
 
 use crate::{fields::bn254base::Bn254Base, pairing::final_exp_native::get_naf};
@@ -35,6 +40,22 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         self.target.value.limbs.iter().cloned().collect_vec()
     }
 
+    pub fn to_vec(&self) -> Vec<Target> {
+        self.limbs().iter().cloned().map(|x| x.0).collect()
+    }
+
+    pub fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
+        assert_eq!(input.len(), num_limbs);
+        let limbs = input.iter().cloned().map(|a| U32Target(a)).collect_vec();
+        range_check_u32_circuit(builder, limbs.clone());
+        let biguint = BigUintTarget { limbs };
+        let target = builder.biguint_to_nonnative::<Bn254Base>(&biguint);
+        FqTarget {
+            target,
+            _marker: PhantomData,
+        }
+    }
 
     pub fn construct(value: NonNativeTarget<Bn254Base>) -> Self {
         Self {
@@ -220,6 +241,24 @@ mod tests {
     type F = GoldilocksField;
     type C = PoseidonGoldilocksConfig;
     const D: usize = 2;
+
+    #[test]
+    fn test_from_to_vec() {
+        let rng = &mut rand::thread_rng();
+        let a = Fq::rand(rng);
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let a_t = FqTarget::constant(&mut builder, a);
+
+        let a_vec = a_t.to_vec();
+        let restored_a_t = FqTarget::from_vec(&mut builder, &a_vec);
+
+        FqTarget::connect(&mut builder, &a_t, &restored_a_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
 
     #[test]
     fn test_fq_mul_circuit() {

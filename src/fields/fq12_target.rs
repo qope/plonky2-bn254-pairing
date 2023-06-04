@@ -18,6 +18,7 @@ use plonky2_ecdsa::gadgets::{
 };
 
 use crate::fields::{
+    bn254base::Bn254Base,
     fq_target::FqTarget,
     native::{from_biguint_to_fq, MyFq12},
 };
@@ -49,6 +50,25 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq12Target<F, D> {
     pub fn connect(builder: &mut CircuitBuilder<F, D>, lhs: &Self, rhs: &Self) {
         for i in 0..12 {
             builder.connect_nonnative(&lhs.coeffs[i].target, &rhs.coeffs[i].target);
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<Target> {
+        self.coeffs.iter().flat_map(|c| c.to_vec()).collect()
+    }
+
+    pub fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
+        assert_eq!(input.len(), 12 * num_limbs);
+        let coeffs = input
+            .iter()
+            .cloned()
+            .chunks(num_limbs)
+            .into_iter()
+            .map(|chunk| FqTarget::from_vec(builder, &chunk.collect_vec()))
+            .collect_vec();
+        Fq12Target {
+            coeffs: coeffs.try_into().unwrap(),
         }
     }
 
@@ -315,6 +335,24 @@ mod tests {
     type F = GoldilocksField;
     type C = PoseidonGoldilocksConfig;
     const D: usize = 2;
+
+    #[test]
+    fn test_from_to_vec() {
+        let rng = &mut rand::thread_rng();
+        let a = Fq12::rand(rng);
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let a_t = Fq12Target::constant(&mut builder, a);
+
+        let a_vec = a_t.to_vec();
+        let restored_a_t = Fq12Target::from_vec(&mut builder, &a_vec);
+
+        Fq12Target::connect(&mut builder, &a_t, &restored_a_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
+    }
 
     #[test]
     fn test_from_biguint_to_fq() {
