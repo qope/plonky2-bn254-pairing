@@ -18,7 +18,10 @@ use plonky2_ecdsa::gadgets::{
     nonnative::CircuitBuilderNonNative,
 };
 
-use crate::fields::{bn254base::Bn254Base, fq_target::FqTarget, native::from_biguint_to_fq};
+use crate::{
+    aggregation::recursive_circuit_target::RecursiveCircuitTarget,
+    fields::{bn254base::Bn254Base, fq_target::FqTarget, native::from_biguint_to_fq},
+};
 
 use super::{debug_tools::print_fq_target, native::sgn0_fq2};
 
@@ -46,25 +49,6 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
     pub fn connect(builder: &mut CircuitBuilder<F, D>, lhs: &Self, rhs: &Self) {
         for i in 0..2 {
             builder.connect_nonnative(&lhs.coeffs[i].target, &rhs.coeffs[i].target);
-        }
-    }
-
-    pub fn to_vec(&self) -> Vec<Target> {
-        self.coeffs.iter().flat_map(|c| c.to_vec()).collect()
-    }
-
-    pub fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
-        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
-        assert_eq!(input.len(), 2 * num_limbs);
-        let coeffs = input
-            .iter()
-            .cloned()
-            .chunks(num_limbs)
-            .into_iter()
-            .map(|chunk| FqTarget::from_vec(builder, &chunk.collect_vec()))
-            .collect_vec();
-        Fq2Target {
-            coeffs: coeffs.try_into().unwrap(),
         }
     }
 
@@ -106,16 +90,6 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
             .try_into()
             .unwrap();
         Self { coeffs }
-    }
-
-    pub fn set_witness(&self, pw: &mut PartialWitness<F>, value: Fq2) {
-        let coeffs = vec![value.c0, value.c1];
-        self.coeffs
-            .iter()
-            .cloned()
-            .zip(coeffs)
-            .map(|(c_t, c)| c_t.set_witness(pw, c))
-            .for_each(drop);
     }
 
     pub fn add(&self, builder: &mut CircuitBuilder<F, D>, rhs: &Self) -> Self {
@@ -485,6 +459,39 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F> for Fq2Sqr
         for i in 0..2 {
             out_buffer.set_biguint_target(&self.sqrt.coeffs[i].target.value, &sqrt_x_biguint[i]);
         }
+    }
+}
+
+impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, Fq2>
+    for Fq2Target<F, D>
+{
+    fn to_vec(&self) -> Vec<Target> {
+        self.coeffs.iter().flat_map(|c| c.to_vec()).collect()
+    }
+
+    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
+        assert_eq!(input.len(), 2 * num_limbs);
+        let coeffs = input
+            .iter()
+            .cloned()
+            .chunks(num_limbs)
+            .into_iter()
+            .map(|chunk| FqTarget::from_vec(builder, &chunk.collect_vec()))
+            .collect_vec();
+        Fq2Target {
+            coeffs: coeffs.try_into().unwrap(),
+        }
+    }
+
+    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &Fq2) {
+        let coeffs = vec![value.c0, value.c1];
+        self.coeffs
+            .iter()
+            .cloned()
+            .zip(coeffs)
+            .map(|(c_t, c)| c_t.set_witness(pw, &c))
+            .for_each(drop);
     }
 }
 

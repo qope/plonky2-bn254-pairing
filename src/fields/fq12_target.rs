@@ -17,10 +17,13 @@ use plonky2_ecdsa::gadgets::{
     nonnative::CircuitBuilderNonNative,
 };
 
-use crate::fields::{
-    bn254base::Bn254Base,
-    fq_target::FqTarget,
-    native::{from_biguint_to_fq, MyFq12},
+use crate::{
+    aggregation::recursive_circuit_target::RecursiveCircuitTarget,
+    fields::{
+        bn254base::Bn254Base,
+        fq_target::FqTarget,
+        native::{from_biguint_to_fq, MyFq12},
+    },
 };
 
 use super::fr_target::FrTarget;
@@ -53,25 +56,6 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq12Target<F, D> {
         }
     }
 
-    pub fn to_vec(&self) -> Vec<Target> {
-        self.coeffs.iter().flat_map(|c| c.to_vec()).collect()
-    }
-
-    pub fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
-        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
-        assert_eq!(input.len(), 12 * num_limbs);
-        let coeffs = input
-            .iter()
-            .cloned()
-            .chunks(num_limbs)
-            .into_iter()
-            .map(|chunk| FqTarget::from_vec(builder, &chunk.collect_vec()))
-            .collect_vec();
-        Fq12Target {
-            coeffs: coeffs.try_into().unwrap(),
-        }
-    }
-
     pub fn select(
         builder: &mut CircuitBuilder<F, D>,
         a: &Self,
@@ -100,16 +84,6 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq12Target<F, D> {
             .try_into()
             .unwrap();
         Self { coeffs }
-    }
-
-    pub fn set_witness(&self, pw: &mut PartialWitness<F>, value: Fq12) {
-        let my_value: MyFq12 = value.into();
-        self.coeffs
-            .iter()
-            .cloned()
-            .zip(my_value.coeffs)
-            .map(|(c_t, c)| c_t.set_witness(pw, c))
-            .for_each(drop);
     }
 
     pub fn add(&self, builder: &mut CircuitBuilder<F, D>, rhs: &Self) -> Self {
@@ -323,6 +297,39 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F>
     }
 }
 
+impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, Fq12>
+    for Fq12Target<F, D>
+{
+    fn to_vec(&self) -> Vec<Target> {
+        self.coeffs.iter().flat_map(|c| c.to_vec()).collect()
+    }
+
+    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
+        assert_eq!(input.len(), 12 * num_limbs);
+        let coeffs = input
+            .iter()
+            .cloned()
+            .chunks(num_limbs)
+            .into_iter()
+            .map(|chunk| FqTarget::from_vec(builder, &chunk.collect_vec()))
+            .collect_vec();
+        Fq12Target {
+            coeffs: coeffs.try_into().unwrap(),
+        }
+    }
+
+    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &Fq12) {
+        let my_value: MyFq12 = value.clone().into();
+        self.coeffs
+            .iter()
+            .cloned()
+            .zip(my_value.coeffs)
+            .map(|(c_t, c)| c_t.set_witness(pw, &c))
+            .for_each(drop);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ark_bn254::{Fq, Fq12, Fr};
@@ -338,7 +345,9 @@ mod tests {
         },
     };
 
-    use crate::fields::fr_target::FrTarget;
+    use crate::{
+        aggregation::recursive_circuit_target::RecursiveCircuitTarget, fields::fr_target::FrTarget,
+    };
 
     use super::{from_biguint_to_fq, Fq12Target};
 

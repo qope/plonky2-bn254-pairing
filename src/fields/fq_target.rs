@@ -21,7 +21,10 @@ use plonky2_u32::{
 };
 use std::marker::PhantomData;
 
-use crate::{fields::bn254base::Bn254Base, pairing::final_exp_native::get_naf};
+use crate::{
+    aggregation::recursive_circuit_target::RecursiveCircuitTarget, fields::bn254base::Bn254Base,
+    pairing::final_exp_native::get_naf,
+};
 
 #[derive(Clone, Debug)]
 pub struct FqTarget<F: RichField + Extendable<D>, const D: usize> {
@@ -46,21 +49,8 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         self.target.value.limbs.iter().cloned().collect_vec()
     }
 
-    pub fn to_vec(&self) -> Vec<Target> {
-        self.limbs().iter().cloned().map(|x| x.0).collect()
-    }
-
-    pub fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
-        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
-        assert_eq!(input.len(), num_limbs);
-        let limbs = input.iter().cloned().map(|a| U32Target(a)).collect_vec();
-        range_check_u32_circuit(builder, limbs.clone());
-        let biguint = BigUintTarget { limbs };
-        let target = builder.biguint_to_nonnative::<Bn254Base>(&biguint);
-        FqTarget {
-            target,
-            _marker: PhantomData,
-        }
+    pub fn num_max_limbs() -> usize {
+        CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>()
     }
 
     pub fn construct(value: NonNativeTarget<Bn254Base>) -> Self {
@@ -114,17 +104,6 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
             target,
             _marker: PhantomData,
         }
-    }
-
-    pub fn set_witness(&self, pw: &mut PartialWitness<F>, value: Fq) {
-        let value_b: BigUint = value.into();
-        let limbs = value_b.to_u32_digits();
-        self.limbs()
-            .iter()
-            .cloned()
-            .zip(limbs)
-            .map(|(l_t, l)| pw.set_u32_target(l_t, l))
-            .for_each(drop);
     }
 
     pub fn from_bool(builder: &mut CircuitBuilder<F, D>, b: &BoolTarget) -> Self {
@@ -237,6 +216,38 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
     }
 }
 
+impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, Fq>
+    for FqTarget<F, D>
+{
+    fn to_vec(&self) -> Vec<Target> {
+        self.limbs().iter().cloned().map(|x| x.0).collect()
+    }
+
+    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
+        assert_eq!(input.len(), num_limbs);
+        let limbs = input.iter().cloned().map(|a| U32Target(a)).collect_vec();
+        range_check_u32_circuit(builder, limbs.clone());
+        let biguint = BigUintTarget { limbs };
+        let target = builder.biguint_to_nonnative::<Bn254Base>(&biguint);
+        FqTarget {
+            target,
+            _marker: PhantomData,
+        }
+    }
+
+    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &Fq) {
+        let value_b: BigUint = value.clone().into();
+        let limbs = value_b.to_u32_digits();
+        self.limbs()
+            .iter()
+            .cloned()
+            .zip(limbs)
+            .map(|(l_t, l)| pw.set_u32_target(l_t, l))
+            .for_each(drop);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fq;
@@ -252,6 +263,8 @@ mod tests {
             config::PoseidonGoldilocksConfig,
         },
     };
+
+    use crate::aggregation::recursive_circuit_target::RecursiveCircuitTarget;
 
     use super::FqTarget;
 
