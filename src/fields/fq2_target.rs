@@ -20,10 +20,7 @@ use plonky2_ecdsa::gadgets::{
 
 use crate::fields::{fq_target::FqTarget, native::from_biguint_to_fq};
 
-use super::{
-    debug_tools::print_fq_target,
-    native::{sgn0_fq, sgn0_fq2},
-};
+use super::{debug_tools::print_fq_target, native::sgn0_fq2};
 
 #[derive(Debug, Clone)]
 pub struct Fq2Target<F: RichField + Extendable<D>, const D: usize> {
@@ -269,6 +266,7 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
         sqrt
     }
 
+    #[allow(non_snake_case)]
     pub fn map_to_g2(&self, builder: &mut CircuitBuilder<F, D>) -> (Self, Self) {
         // constants
         let Z = Fq2::one();
@@ -289,16 +287,16 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
         let gz = g(Z);
         // let term = -(Fq2::from(3) * Z * Z) / (Fq2::from(4) * gz);
         // let sq_term = term.sqrt().unwrap();
-        let sgn0_fq = |x: Fq| -> bool {
-            let y: BigUint = x.into();
-            y.to_u32_digits()[0] & 1 == 1
-        };
-        let sgn0 = |x: Fq2| -> bool {
-            let sgn0_x = sgn0_fq(x.c0);
-            let zero_0 = x.c0.is_zero();
-            let sgn0_y = sgn0_fq(x.c1);
-            sgn0_x || (zero_0 && sgn0_y)
-        };
+        // let sgn0_fq = |x: Fq| -> bool {
+        //     let y: BigUint = x.into();
+        //     y.to_u32_digits()[0] & 1 == 1
+        // };
+        // let sgn0 = |x: Fq2| -> bool {
+        //     let sgn0_x = sgn0_fq(x.c0);
+        //     let zero_0 = x.c0.is_zero();
+        //     let sgn0_y = sgn0_fq(x.c1);
+        //     sgn0_x || (zero_0 && sgn0_y)
+        // };
         let neg_two_by_z = -Z / (Fq2::from(2));
         let tv4 = (-gz * Fq2::from(3) * Z * Z).sqrt().unwrap();
         let tv6 = -Fq2::from(4) * gz / (Fq2::from(3) * Z * Z);
@@ -505,6 +503,7 @@ mod tests {
         let _proof = data.prove(pw);
     }
 
+    #[allow(non_snake_case)]
     fn map_to_curve(u: Fq2) -> G2Affine {
         // constants
         let Z = Fq2::one();
@@ -583,6 +582,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn test_map_to_curve() {
         let rng = &mut rand::thread_rng();
         let a: Fq2 = Fq2::rand(rng);
@@ -599,8 +599,8 @@ mod tests {
         let x_expected_t = Fq2Target::constant(&mut builder, x_expected);
         let y_expected_t = Fq2Target::constant(&mut builder, y_expected);
 
-        // Fq2Target::connect(&mut builder, &x_t, &x_expected_t);
-        // Fq2Target::connect(&mut builder, &y_t, &y_expected_t);
+        Fq2Target::connect(&mut builder, &x_t, &x_expected_t);
+        Fq2Target::connect(&mut builder, &y_t, &y_expected_t);
 
         let pw = PartialWitness::new();
         let data = builder.build::<C>();

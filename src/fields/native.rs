@@ -9,7 +9,7 @@ use crate::pairing::final_exp_native::get_naf;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MyFq12 {
-    pub(crate) coeffs: [Fq; 12],
+    pub coeffs: [Fq; 12],
 }
 
 // impl from trait
@@ -190,8 +190,6 @@ pub fn pow_fq(a: Fq, exp: Vec<u64>) -> Fq {
     }
     res
 }
-
-
 
 #[cfg(test)]
 mod tests {

@@ -7,7 +7,7 @@ use plonky2::{
     hash::hash_types::RichField,
     iop::{
         generator::{GeneratedValues, SimpleGenerator},
-        target::Target,
+        target::{BoolTarget, Target},
         witness::PartitionWitness,
     },
     plonk::circuit_builder::CircuitBuilder,
@@ -21,6 +21,8 @@ use crate::fields::{
     fq_target::FqTarget,
     native::{from_biguint_to_fq, MyFq12},
 };
+
+use super::fr_target::FrTarget;
 
 #[derive(Debug, Clone)]
 pub struct Fq12Target<F: RichField + Extendable<D>, const D: usize> {
@@ -47,6 +49,24 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq12Target<F, D> {
     pub fn connect(builder: &mut CircuitBuilder<F, D>, lhs: &Self, rhs: &Self) {
         for i in 0..12 {
             builder.connect_nonnative(&lhs.coeffs[i].target, &rhs.coeffs[i].target);
+        }
+    }
+
+    pub fn select(
+        builder: &mut CircuitBuilder<F, D>,
+        a: &Self,
+        b: &Self,
+        flag: &BoolTarget,
+    ) -> Self {
+        let selected = a
+            .coeffs
+            .iter()
+            .zip(b.coeffs.iter())
+            .map(|(a, b)| FqTarget::select(builder, a, b, flag))
+            .collect_vec();
+
+        Self {
+            coeffs: selected.try_into().unwrap(),
         }
     }
 
@@ -196,6 +216,38 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq12Target<F, D> {
         coeffs[11] = coeffs[11].neg(builder);
         Self { coeffs }
     }
+
+    pub fn conditional_mul(
+        &self,
+        builder: &mut CircuitBuilder<F, D>,
+        x: &Self,
+        flag: &BoolTarget,
+    ) -> Self {
+        let muled = self.mul(builder, x);
+        Self::select(builder, &muled, &self, flag)
+    }
+
+    pub fn pow_var(&self, builder: &mut CircuitBuilder<F, D>, s: FrTarget<F, D>) -> Self {
+        let bits = builder.split_nonnative_to_bits(&s.target);
+
+        // x^{2^0}, x^{2^1}, x^{2^2}
+        // r = 1
+        // r.conditional_mul(x^{2^0})
+        let mut squares = vec![self.clone()];
+        let mut v = self.clone();
+        for _ in 1..bits.len() {
+            v = v.mul(builder, &v);
+            squares.push(v.clone());
+        }
+
+        assert_eq!(squares.len(), bits.len());
+
+        let mut r = Self::constant(builder, Fq12::ONE);
+        for i in 0..bits.len() {
+            r = r.conditional_mul(builder, &squares[i], &bits[i]);
+        }
+        r
+    }
 }
 
 #[derive(Debug)]
@@ -243,7 +295,7 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F>
 
 #[cfg(test)]
 mod tests {
-    use ark_bn254::{Fq, Fq12};
+    use ark_bn254::{Fq, Fq12, Fr};
     use ark_ff::Field;
     use ark_std::UniformRand;
     use num_bigint::BigUint;
@@ -255,6 +307,8 @@ mod tests {
             config::PoseidonGoldilocksConfig,
         },
     };
+
+    use crate::fields::fr_target::FrTarget;
 
     use super::{from_biguint_to_fq, Fq12Target};
 
@@ -305,6 +359,32 @@ mod tests {
         let inv_x_expected_t = Fq12Target::constant(&mut builder, inv_x_expected);
 
         Fq12Target::connect(&mut builder, &inv_x_t, &inv_x_expected_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        dbg!(data.common.degree_bits());
+        let _proof = data.prove(pw);
+    }
+
+    #[test]
+    fn test_pow_var_fq12() {
+        let rng = &mut rand::thread_rng();
+        let x = Fq12::rand(rng);
+        let a = Fr::rand(rng);
+
+        let a_biguint: BigUint = a.into();
+        let r_expected = x.pow(&a_biguint.to_u64_digits());
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+
+        let x_t = Fq12Target::constant(&mut builder, x);
+        let a_t = FrTarget::constant(&mut builder, a);
+        let r_t = x_t.pow_var(&mut builder, a_t);
+
+        let r_expected_t = Fq12Target::constant(&mut builder, r_expected);
+
+        Fq12Target::connect(&mut builder, &r_t, &r_expected_t);
 
         let pw = PartialWitness::new();
         let data = builder.build::<C>();

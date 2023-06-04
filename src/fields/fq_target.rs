@@ -3,9 +3,7 @@ use itertools::Itertools;
 use num::{One, Zero};
 use num_bigint::BigUint;
 use plonky2::{
-    field::extension::Extendable,
-    hash::hash_types::RichField,
-    iop::target::{BoolTarget, Target},
+    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::nonnative::{CircuitBuilderNonNative, NonNativeTarget};
@@ -36,6 +34,7 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
     pub fn limbs(&self) -> Vec<U32Target> {
         self.target.value.limbs.iter().cloned().collect_vec()
     }
+
 
     pub fn construct(value: NonNativeTarget<Bn254Base>) -> Self {
         Self {
