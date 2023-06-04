@@ -21,3 +21,4 @@ serde = { version = "1.0.160", features = ["derive"] }
 itertools = "0.10.5"
 anyhow = "1.0.71"
 hex = "0.4.3"
+bitvec = "1"

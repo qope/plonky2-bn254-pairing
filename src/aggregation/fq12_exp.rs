@@ -50,44 +50,19 @@ mod tests {
     };
     use rand::Rng;
 
-    use crate::fields::fq12_target::Fq12Target;
+    use crate::{
+        aggregation::fq12_generate_witness::{
+            partial_exp_statement_witness, PartialExpStatementWitnessInput,
+            PartialExpStatementWitnessOutput,
+        },
+        fields::fq12_target::Fq12Target,
+    };
 
     use super::{verify_partial_exp_statement, PartialExpStatement};
 
     type F = GoldilocksField;
     const D: usize = 2;
     type C = PoseidonGoldilocksConfig;
-
-    pub struct PartialExpStatementWitnessInput {
-        bits: Vec<bool>,
-        start: Fq12,
-        start_square: Fq12,
-    }
-
-    pub struct PartialExpStatementWitnessOutput {
-        end: Fq12,
-        end_square: Fq12,
-    }
-
-    pub fn partial_exp_statement_witness(
-        statement: &PartialExpStatementWitnessInput,
-    ) -> PartialExpStatementWitnessOutput {
-        let mut squares = vec![];
-        let mut v = statement.start_square.clone();
-        squares.push(v.clone());
-        for _ in 0..statement.bits.len() {
-            v = v * v;
-            squares.push(v.clone());
-        }
-        let end_square = squares.pop().unwrap();
-
-        let mut r = statement.start.clone();
-        for i in 0..statement.bits.len() {
-            r = if statement.bits[i] { r * squares[i] } else { r };
-        }
-        let end = r;
-        PartialExpStatementWitnessOutput { end, end_square }
-    }
 
     #[test]
     fn test_verify_partial_exp_statement() {
