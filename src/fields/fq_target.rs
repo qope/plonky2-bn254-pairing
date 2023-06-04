@@ -5,14 +5,20 @@ use num_bigint::BigUint;
 use plonky2::{
     field::extension::Extendable,
     hash::hash_types::RichField,
-    iop::target::{BoolTarget, Target},
+    iop::{
+        target::{BoolTarget, Target},
+        witness::PartialWitness,
+    },
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::{
     biguint::BigUintTarget,
     nonnative::{CircuitBuilderNonNative, NonNativeTarget},
 };
-use plonky2_u32::gadgets::{arithmetic_u32::U32Target, range_check::range_check_u32_circuit};
+use plonky2_u32::{
+    gadgets::{arithmetic_u32::U32Target, range_check::range_check_u32_circuit},
+    witness::WitnessU32,
+};
 use std::marker::PhantomData;
 
 use crate::{fields::bn254base::Bn254Base, pairing::final_exp_native::get_naf};
@@ -108,6 +114,17 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
             target,
             _marker: PhantomData,
         }
+    }
+
+    pub fn set_witness(&self, pw: &mut PartialWitness<F>, value: Fq) {
+        let value_b: BigUint = value.into();
+        let limbs = value_b.to_u32_digits();
+        self.limbs()
+            .iter()
+            .cloned()
+            .zip(limbs)
+            .map(|(l_t, l)| pw.set_u32_target(l_t, l))
+            .for_each(drop);
     }
 
     pub fn from_bool(builder: &mut CircuitBuilder<F, D>, b: &BoolTarget) -> Self {

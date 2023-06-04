@@ -9,7 +9,7 @@ use plonky2::{
     iop::{
         generator::{GeneratedValues, SimpleGenerator},
         target::{BoolTarget, Target},
-        witness::{PartitionWitness, Witness},
+        witness::{PartialWitness, PartitionWitness, Witness},
     },
     plonk::circuit_builder::CircuitBuilder,
 };
@@ -106,6 +106,16 @@ impl<F: RichField + Extendable<D>, const D: usize> Fq2Target<F, D> {
             .try_into()
             .unwrap();
         Self { coeffs }
+    }
+
+    pub fn set_witness(&self, pw: &mut PartialWitness<F>, value: Fq2) {
+        let coeffs = vec![value.c0, value.c1];
+        self.coeffs
+            .iter()
+            .cloned()
+            .zip(coeffs)
+            .map(|(c_t, c)| c_t.set_witness(pw, c))
+            .for_each(drop);
     }
 
     pub fn add(&self, builder: &mut CircuitBuilder<F, D>, rhs: &Self) -> Self {
