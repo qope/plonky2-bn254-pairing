@@ -1,7 +1,10 @@
 use anyhow::Result;
+use ark_bn254::{Fq12, Fr};
 use itertools::Itertools;
+use num_traits::One;
 use plonky2::{
     field::{extension::Extendable, goldilocks_field::GoldilocksField},
+    fri::proof,
     hash::hash_types::RichField,
     iop::{
         target::{BoolTarget, Target},
@@ -11,11 +14,12 @@ use plonky2::{
         circuit_builder::CircuitBuilder,
         circuit_data::{CircuitConfig, CircuitData},
         config::PoseidonGoldilocksConfig,
-        proof::ProofWithPublicInputs,
+        proof::{ProofWithPublicInputs, ProofWithPublicInputsTarget},
     },
 };
+use plonky2_ecdsa::gadgets::nonnative::CircuitBuilderNonNative;
 
-use crate::fields::{fq12_target::Fq12Target, fq_target::FqTarget};
+use crate::fields::{fq12_target::Fq12Target, fq_target::FqTarget, fr_target::FrTarget};
 
 use super::{
     fq12_generate_witness::PartialExpStatementWitness,
@@ -32,7 +36,7 @@ pub struct PartialExpStatement<F: RichField + Extendable<D>, const D: usize> {
     end_square: Fq12Target<F, D>,
 }
 
-pub fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
+fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     statement: &PartialExpStatement<F, D>,
 ) {
@@ -158,6 +162,88 @@ pub fn generate_proof(
     proof
 }
 
+pub struct AggregationTarget {
+    proofs: Vec<ProofWithPublicInputsTarget<2>>,
+    p: Fq12Target<GoldilocksField, 2>,
+    x: FrTarget<GoldilocksField, 2>,
+    p_x: Fq12Target<GoldilocksField, 2>,
+}
+
+pub fn build_aggregation_circuit(
+    inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
+    proofs: &[ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>],
+) -> (
+    CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
+    AggregationTarget,
+) {
+    let config = CircuitConfig::standard_recursion_config();
+    let mut builder = CircuitBuilder::<GoldilocksField, 2>::new(config);
+    let verifier_circuit_target = builder.constant_verifier_data(&inner_data.verifier_only);
+
+    let mut proofs_t = vec![];
+    let mut statements = vec![];
+    for _ in 0..proofs.len() {
+        let proof_t = builder.add_virtual_proof_with_pis(&inner_data.common);
+        builder.verify_proof::<PoseidonGoldilocksConfig>(
+            &proof_t,
+            &verifier_circuit_target,
+            &inner_data.common,
+        );
+        let pi_vec = proof_t.public_inputs.clone();
+        let statement = PartialExpStatement::from_vec(&mut builder, &pi_vec);
+        proofs_t.push(proof_t);
+        statements.push(statement);
+    }
+
+    // verify boundry condition
+    let one = Fq12Target::constant(&mut builder, Fq12::one());
+    let start = statements.first().unwrap().start.clone();
+    Fq12Target::connect(&mut builder, &start, &one);
+    let p = statements.first().unwrap().start_square.clone();
+    let p_x = statements.last().unwrap().end.clone();
+
+    // verify transition rule
+    for i in 1..statements.len() {
+        let prev_end = statements[i - 1].end.clone();
+        let prev_end_square = statements[i - 1].end_square.clone();
+        let start = statements[i].start.clone();
+        let start_square = statements[i].start_square.clone();
+        Fq12Target::connect(&mut builder, &start, &prev_end);
+        Fq12Target::connect(&mut builder, &start_square, &prev_end_square);
+    }
+
+    // verify bit decomposition
+    let mut bits_statement = vec![];
+    for s in statements {
+        assert_eq!(s.bits.len(), NUM_BITS);
+        bits_statement.extend(s.bits.clone());
+    }
+
+    let x = FrTarget::new(&mut builder);
+    let mut bits_x = builder.split_nonnative_to_bits(&x.target);
+    let rem = bits_x.len() % NUM_BITS;
+    bits_x.extend(vec![builder.constant_bool(false); rem]);
+
+    assert_eq!(bits_statement.len(), bits_x.len());
+
+    bits_x
+        .iter()
+        .zip(bits_statement)
+        .map(|(b0, b1)| builder.connect(b0.target, b1.target))
+        .for_each(drop);
+
+    let target = AggregationTarget {
+        proofs: proofs_t,
+        p,
+        x,
+        p_x,
+    };
+
+    let data = builder.build();
+
+    (data, target)
+}
+
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fq12;
@@ -227,4 +313,7 @@ mod tests {
         let _proof = data.prove(pw);
         dbg!(data.common.degree_bits());
     }
+
+    #[test]
+    fn test_aggregation() {}
 }
