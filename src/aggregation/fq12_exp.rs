@@ -1,6 +1,8 @@
 use anyhow::Result;
 use ark_bn254::Fq12;
+use bitvec::prelude::*;
 use itertools::Itertools;
+use num_bigint::BigUint;
 use num_traits::One;
 use plonky2::{
     field::{extension::Extendable, goldilocks_field::GoldilocksField},
@@ -242,6 +244,16 @@ pub fn build_aggregation_circuit(
     (data, target)
 }
 
+pub fn biguint_to_bits(x: &BigUint) -> Vec<bool> {
+    let limbs = x.to_bytes_le();
+    let mut bits = vec![];
+    for limb in limbs {
+        let limb_bits = limb.view_bits::<Lsb0>().iter().map(|b| *b).collect_vec();
+        bits.extend(limb_bits);
+    }
+    bits
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -262,9 +274,12 @@ mod tests {
     use rand::Rng;
     use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
+    use super::{
+        build_aggregation_circuit, build_circuit, verify_partial_exp_statement, PartialExpStatement,
+    };
     use crate::{
         aggregation::{
-            fq12_exp::{generate_proof, NUM_BITS},
+            fq12_exp::{biguint_to_bits, generate_proof, NUM_BITS},
             fq12_generate_witness::{
                 generate_witness, generate_witness_from_bits, partial_exp_statement_witness,
                 PartialExpStatementWitness, PartialExpStatementWitnessInput,
@@ -273,11 +288,6 @@ mod tests {
             recursive_circuit_target::RecursiveCircuitTarget,
         },
         fields::fq12_target::Fq12Target,
-    };
-    use bitvec::prelude::*;
-
-    use super::{
-        build_aggregation_circuit, build_circuit, verify_partial_exp_statement, PartialExpStatement,
     };
 
     type F = GoldilocksField;
@@ -354,36 +364,20 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregation() {
-        let (inner_data, _statement) = build_circuit();
-        let mut rng = rand::thread_rng();
-        let p = Fq12::rand(&mut rng);
-        let x = Fr::rand(&mut rng);
-        let _x_biguint: BigUint = x.into();
-        // let result = p.pow(&x_biguint.to_u64_digits());
-        let statements_witness = generate_witness(p, x, 4);
-
-        let (_data, _statements) = build_aggregation_circuit(&inner_data, statements_witness.len());
-    }
-
-    #[test]
-    fn test_aggregation_light_weight() {
+    fn test_aggregation_from_bits() {
         let (inner_data, statement_t) = build_circuit();
         let mut rng = rand::thread_rng();
         let p = Fq12::rand(&mut rng);
-        let x: u16 = rng.gen();
-        let bits: Vec<bool> = x.view_bits::<Lsb0>().iter().map(|b| *b).collect_vec();
+        let x = Fr::from(21);
         let x_biguint: BigUint = x.into();
+        let bits = biguint_to_bits(&x_biguint);
 
         let statements_witness = generate_witness_from_bits(p, bits.clone(), NUM_BITS);
 
         let p_x = p.pow(&x_biguint.to_u64_digits());
         assert_eq!(statements_witness.last().unwrap().end, p_x);
 
-        let (data, aggregation_t) =
-            build_aggregation_circuit(&inner_data, statements_witness.len());
-
-        println!("End of circuit build construction");
+        println!("End of step circuit construction");
 
         println!("Start of proof generation");
         let now = Instant::now();
@@ -392,10 +386,15 @@ mod tests {
             .map(|sw| generate_proof(&inner_data, &statement_t, sw).unwrap())
             .collect();
         println!(
-            "{} proofs generation took: {} sec",
+            "{} proofs generation took: {} secs",
             proofs.len(),
             now.elapsed().as_secs()
         );
+
+        let (data, aggregation_t) =
+            build_aggregation_circuit(&inner_data, statements_witness.len());
+
+        println!("End of aggregation circuit construction");
 
         let mut pw = PartialWitness::new();
         aggregation_t
@@ -416,6 +415,6 @@ mod tests {
         println!("Start aggregation proof");
         let now = Instant::now();
         let _proof = data.prove(pw).unwrap();
-        println!("Aggregation took {} sec", now.elapsed().as_secs());
+        println!("Aggregation took {} secs", now.elapsed().as_secs());
     }
 }
