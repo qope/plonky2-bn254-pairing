@@ -365,10 +365,11 @@ mod tests {
 
     #[test]
     fn test_aggregation_from_bits() {
+        let now = Instant::now();
         let (inner_data, statement_t) = build_circuit();
         let mut rng = rand::thread_rng();
         let p = Fq12::rand(&mut rng);
-        let x = Fr::from(21);
+        let x = Fr::rand(&mut rng);
         let x_biguint: BigUint = x.into();
         let bits = biguint_to_bits(&x_biguint);
 
@@ -376,8 +377,10 @@ mod tests {
 
         let p_x = p.pow(&x_biguint.to_u64_digits());
         assert_eq!(statements_witness.last().unwrap().end, p_x);
-
-        println!("End of step circuit construction");
+        println!(
+            "Step circuit construction took {} secs",
+            now.elapsed().as_secs()
+        );
 
         println!("Start of proof generation");
         let now = Instant::now();
@@ -391,10 +394,13 @@ mod tests {
             now.elapsed().as_secs()
         );
 
+        let now = Instant::now();
         let (data, aggregation_t) =
             build_aggregation_circuit(&inner_data, statements_witness.len());
-
-        println!("End of aggregation circuit construction");
+        println!(
+            "Aggregation circuit construction took {} secs",
+            now.elapsed().as_secs()
+        );
 
         let mut pw = PartialWitness::new();
         aggregation_t
