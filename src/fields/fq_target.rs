@@ -238,7 +238,13 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, 
 
     fn set_witness(&self, pw: &mut PartialWitness<F>, value: &Fq) {
         let value_b: BigUint = value.clone().into();
-        let limbs = value_b.to_u32_digits();
+        let mut limbs = value_b.to_u32_digits();
+
+        // padding
+        let num_lims = Self::num_max_limbs();
+        let to_padd = num_lims - limbs.len();
+        limbs.extend(vec![0; to_padd]);
+
         self.limbs()
             .iter()
             .cloned()

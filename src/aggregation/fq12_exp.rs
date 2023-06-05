@@ -1,10 +1,9 @@
 use anyhow::Result;
-use ark_bn254::{Fq12, Fr};
+use ark_bn254::Fq12;
 use itertools::Itertools;
 use num_traits::One;
 use plonky2::{
     field::{extension::Extendable, goldilocks_field::GoldilocksField},
-    fri::proof,
     hash::hash_types::RichField,
     iop::{
         target::{BoolTarget, Target},
@@ -17,9 +16,8 @@ use plonky2::{
         proof::{ProofWithPublicInputs, ProofWithPublicInputsTarget},
     },
 };
-use plonky2_ecdsa::gadgets::nonnative::CircuitBuilderNonNative;
 
-use crate::fields::{fq12_target::Fq12Target, fq_target::FqTarget, fr_target::FrTarget};
+use crate::fields::{fq12_target::Fq12Target, fq_target::FqTarget};
 
 use super::{
     fq12_generate_witness::PartialExpStatementWitness,
@@ -123,16 +121,14 @@ impl<F: RichField + Extendable<D>, const D: usize>
     }
 }
 
-pub fn build_circuit(
-    bits_len: usize,
-) -> (
+pub fn build_circuit() -> (
     CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
     PartialExpStatement<GoldilocksField, 2>,
 ) {
     const D: usize = 2;
     let config = CircuitConfig::standard_ecc_config();
     let mut builder = CircuitBuilder::<GoldilocksField, D>::new(config);
-    let bits_t = (0..bits_len)
+    let bits_t = (0..NUM_BITS)
         .map(|_| builder.add_virtual_bool_target_safe())
         .collect_vec();
     let statement_t = PartialExpStatement {
@@ -152,37 +148,37 @@ pub fn build_circuit(
 }
 
 pub fn generate_proof(
-    data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
+    inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
     statement_t: &PartialExpStatement<GoldilocksField, 2>,
     statement_witness: &PartialExpStatementWitness,
 ) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>> {
     let mut pw = PartialWitness::<GoldilocksField>::new();
     statement_t.set_witness(&mut pw, statement_witness);
-    let proof = data.prove(pw);
+    let proof = inner_data.prove(pw);
     proof
 }
 
 pub struct AggregationTarget {
-    proofs: Vec<ProofWithPublicInputsTarget<2>>,
-    p: Fq12Target<GoldilocksField, 2>,
-    x: FrTarget<GoldilocksField, 2>,
-    p_x: Fq12Target<GoldilocksField, 2>,
+    pub proofs: Vec<ProofWithPublicInputsTarget<2>>,
+    pub p: Fq12Target<GoldilocksField, 2>,
+    pub bits: Vec<BoolTarget>,
+    pub p_x: Fq12Target<GoldilocksField, 2>,
 }
 
 pub fn build_aggregation_circuit(
     inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    proofs: &[ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>],
+    num_proofs: usize,
 ) -> (
     CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
     AggregationTarget,
 ) {
-    let config = CircuitConfig::standard_recursion_config();
+    let config = CircuitConfig::standard_ecc_config();
     let mut builder = CircuitBuilder::<GoldilocksField, 2>::new(config);
     let verifier_circuit_target = builder.constant_verifier_data(&inner_data.verifier_only);
 
     let mut proofs_t = vec![];
     let mut statements = vec![];
-    for _ in 0..proofs.len() {
+    for _ in 0..num_proofs {
         let proof_t = builder.add_virtual_proof_with_pis(&inner_data.common);
         builder.verify_proof::<PoseidonGoldilocksConfig>(
             &proof_t,
@@ -213,29 +209,31 @@ pub fn build_aggregation_circuit(
     }
 
     // verify bit decomposition
-    let mut bits_statement = vec![];
+    let mut bits = vec![];
     for s in statements {
         assert_eq!(s.bits.len(), NUM_BITS);
-        bits_statement.extend(s.bits.clone());
+        bits.extend(s.bits.clone());
     }
 
-    let x = FrTarget::new(&mut builder);
-    let mut bits_x = builder.split_nonnative_to_bits(&x.target);
-    let rem = bits_x.len() % NUM_BITS;
-    bits_x.extend(vec![builder.constant_bool(false); rem]);
+    // let x = FrTarget::new(&mut builder);
+    // let mut bits_x = builder.split_nonnative_to_bits(&x.target);
+    // assert!(bits_x.len() <= bits_statement.len());
 
-    assert_eq!(bits_statement.len(), bits_x.len());
+    // let diff = bits_statement.len() - bits_x.len();
+    // bits_x.extend(vec![builder.constant_bool(false); diff]);
 
-    bits_x
-        .iter()
-        .zip(bits_statement)
-        .map(|(b0, b1)| builder.connect(b0.target, b1.target))
-        .for_each(drop);
+    // assert_eq!(bits_statement.len(), bits_x.len());
+
+    // bits_x
+    //     .iter()
+    //     .zip(bits_statement)
+    //     .map(|(b0, b1)| builder.connect(b0.target, b1.target))
+    //     .for_each(drop);
 
     let target = AggregationTarget {
         proofs: proofs_t,
         p,
-        x,
+        bits,
         p_x,
     };
 
@@ -246,28 +244,41 @@ pub fn build_aggregation_circuit(
 
 #[cfg(test)]
 mod tests {
-    use ark_bn254::Fq12;
+    use std::time::Instant;
+
+    use ark_bn254::{Fq12, Fr};
+    use ark_ff::Field;
     use ark_std::UniformRand;
     use itertools::Itertools;
+    use num_bigint::BigUint;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
-        iop::witness::PartialWitness,
+        iop::witness::{PartialWitness, WitnessWrite},
         plonk::{
             circuit_builder::CircuitBuilder, circuit_data::CircuitConfig,
             config::PoseidonGoldilocksConfig,
         },
     };
     use rand::Rng;
+    use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
     use crate::{
-        aggregation::fq12_generate_witness::{
-            partial_exp_statement_witness, PartialExpStatementWitnessInput,
-            PartialExpStatementWitnessOutput,
+        aggregation::{
+            fq12_exp::{generate_proof, NUM_BITS},
+            fq12_generate_witness::{
+                generate_witness, generate_witness_from_bits, partial_exp_statement_witness,
+                PartialExpStatementWitness, PartialExpStatementWitnessInput,
+                PartialExpStatementWitnessOutput,
+            },
+            recursive_circuit_target::RecursiveCircuitTarget,
         },
         fields::fq12_target::Fq12Target,
     };
+    use bitvec::prelude::*;
 
-    use super::{verify_partial_exp_statement, PartialExpStatement};
+    use super::{
+        build_aggregation_circuit, build_circuit, verify_partial_exp_statement, PartialExpStatement,
+    };
 
     type F = GoldilocksField;
     const D: usize = 2;
@@ -315,5 +326,96 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregation() {}
+    fn test_gen_proof() {
+        let (inner_data, statement_target) = build_circuit();
+
+        let mut rng = rand::thread_rng();
+
+        // make witness
+        let start = Fq12::rand(&mut rng);
+        let start_square = Fq12::rand(&mut rng);
+        let bits: Vec<bool> = vec![rng.gen(); NUM_BITS];
+        let PartialExpStatementWitnessOutput { end, end_square } =
+            partial_exp_statement_witness(&PartialExpStatementWitnessInput {
+                bits: bits.clone(),
+                start,
+                start_square,
+            });
+
+        let sw = PartialExpStatementWitness {
+            bits,
+            start,
+            end,
+            start_square,
+            end_square,
+        };
+
+        let _proof = generate_proof(&inner_data, &statement_target, &sw).unwrap();
+    }
+
+    #[test]
+    fn test_aggregation() {
+        let (inner_data, _statement) = build_circuit();
+        let mut rng = rand::thread_rng();
+        let p = Fq12::rand(&mut rng);
+        let x = Fr::rand(&mut rng);
+        let _x_biguint: BigUint = x.into();
+        // let result = p.pow(&x_biguint.to_u64_digits());
+        let statements_witness = generate_witness(p, x, 4);
+
+        let (_data, _statements) = build_aggregation_circuit(&inner_data, statements_witness.len());
+    }
+
+    #[test]
+    fn test_aggregation_light_weight() {
+        let (inner_data, statement_t) = build_circuit();
+        let mut rng = rand::thread_rng();
+        let p = Fq12::rand(&mut rng);
+        let x: u16 = rng.gen();
+        let bits: Vec<bool> = x.view_bits::<Lsb0>().iter().map(|b| *b).collect_vec();
+        let x_biguint: BigUint = x.into();
+
+        let statements_witness = generate_witness_from_bits(p, bits.clone(), NUM_BITS);
+
+        let p_x = p.pow(&x_biguint.to_u64_digits());
+        assert_eq!(statements_witness.last().unwrap().end, p_x);
+
+        let (data, aggregation_t) =
+            build_aggregation_circuit(&inner_data, statements_witness.len());
+
+        println!("End of circuit build construction");
+
+        println!("Start of proof generation");
+        let now = Instant::now();
+        let proofs: Vec<_> = statements_witness
+            .par_iter()
+            .map(|sw| generate_proof(&inner_data, &statement_t, sw).unwrap())
+            .collect();
+        println!(
+            "{} proofs generation took: {} sec",
+            proofs.len(),
+            now.elapsed().as_secs()
+        );
+
+        let mut pw = PartialWitness::new();
+        aggregation_t
+            .proofs
+            .iter()
+            .zip(proofs)
+            .map(|(p_t, p)| pw.set_proof_with_pis_target(&p_t, &p))
+            .for_each(drop);
+        aggregation_t.p.set_witness(&mut pw, &p);
+        aggregation_t
+            .bits
+            .iter()
+            .zip(bits)
+            .map(|(b_t, b)| pw.set_bool_target(*b_t, b))
+            .for_each(drop);
+        aggregation_t.p_x.set_witness(&mut pw, &p_x);
+
+        println!("Start aggregation proof");
+        let now = Instant::now();
+        let _proof = data.prove(pw).unwrap();
+        println!("Aggregation took {} sec", now.elapsed().as_secs());
+    }
 }
