@@ -18,12 +18,12 @@ use plonky2_ecdsa::gadgets::{
 };
 
 use crate::{
-    aggregation::recursive_circuit_target::RecursiveCircuitTarget,
     fields::{
         bn254base::Bn254Base,
         fq_target::FqTarget,
         native::{from_biguint_to_fq, MyFq12},
     },
+    traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
 use super::fr_target::FrTarget;
@@ -346,7 +346,7 @@ mod tests {
     };
 
     use crate::{
-        aggregation::recursive_circuit_target::RecursiveCircuitTarget, fields::fr_target::FrTarget,
+        fields::fr_target::FrTarget, traits::recursive_circuit_target::RecursiveCircuitTarget,
     };
 
     use super::{from_biguint_to_fq, Fq12Target};

@@ -22,8 +22,8 @@ use plonky2_u32::{
 use std::marker::PhantomData;
 
 use crate::{
-    aggregation::recursive_circuit_target::RecursiveCircuitTarget, fields::bn254base::Bn254Base,
-    pairing::final_exp_native::get_naf,
+    fields::bn254base::Bn254Base, pairing::final_exp_native::get_naf,
+    traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
 #[derive(Clone, Debug)]
@@ -270,7 +270,7 @@ mod tests {
         },
     };
 
-    use crate::aggregation::recursive_circuit_target::RecursiveCircuitTarget;
+    use crate::traits::recursive_circuit_target::RecursiveCircuitTarget;
 
     use super::FqTarget;
 

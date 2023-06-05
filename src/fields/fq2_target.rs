@@ -19,7 +19,7 @@ use plonky2_ecdsa::gadgets::{
 };
 
 use crate::{
-    aggregation::recursive_circuit_target::RecursiveCircuitTarget,
+    traits::recursive_circuit_target::RecursiveCircuitTarget,
     fields::{bn254base::Bn254Base, fq_target::FqTarget, native::from_biguint_to_fq},
 };
 

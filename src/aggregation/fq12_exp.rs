@@ -19,12 +19,12 @@ use plonky2::{
     },
 };
 
-use crate::fields::{fq12_target::Fq12Target, fq_target::FqTarget};
-
-use super::{
-    fq12_generate_witness::PartialExpStatementWitness,
-    recursive_circuit_target::RecursiveCircuitTarget,
+use crate::{
+    fields::{fq12_target::Fq12Target, fq_target::FqTarget},
+    traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
+
+use super::fq12_generate_witness::PartialExpStatementWitness;
 
 const NUM_BITS: usize = 5;
 
@@ -281,13 +281,13 @@ mod tests {
         aggregation::{
             fq12_exp::{biguint_to_bits, generate_proof, NUM_BITS},
             fq12_generate_witness::{
-                generate_witness, generate_witness_from_bits, partial_exp_statement_witness,
+                generate_witness_from_bits, partial_exp_statement_witness,
                 PartialExpStatementWitness, PartialExpStatementWitnessInput,
                 PartialExpStatementWitnessOutput,
             },
-            recursive_circuit_target::RecursiveCircuitTarget,
         },
         fields::fq12_target::Fq12Target,
+        traits::recursive_circuit_target::RecursiveCircuitTarget,
     };
 
     type F = GoldilocksField;
