@@ -216,22 +216,7 @@ pub fn build_aggregation_circuit(
         assert_eq!(s.bits.len(), NUM_BITS);
         bits.extend(s.bits.clone());
     }
-
-    // let x = FrTarget::new(&mut builder);
-    // let mut bits_x = builder.split_nonnative_to_bits(&x.target);
-    // assert!(bits_x.len() <= bits_statement.len());
-
-    // let diff = bits_statement.len() - bits_x.len();
-    // bits_x.extend(vec![builder.constant_bool(false); diff]);
-
-    // assert_eq!(bits_statement.len(), bits_x.len());
-
-    // bits_x
-    //     .iter()
-    //     .zip(bits_statement)
-    //     .map(|(b0, b1)| builder.connect(b0.target, b1.target))
-    //     .for_each(drop);
-
+    
     let target = AggregationTarget {
         proofs: proofs_t,
         p,

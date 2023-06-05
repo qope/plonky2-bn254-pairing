@@ -3,36 +3,11 @@ use itertools::Itertools;
 use num_bigint::BigUint;
 use num_traits::One;
 
-pub fn u8_to_bools(n: u8) -> Vec<bool> {
-    let mut bits = Vec::with_capacity(8);
-    for i in 0..8 {
-        bits.push((n & (1 << i)) != 0);
-    }
-    bits
-}
-
-pub fn u16_to_bools(n: u16) -> Vec<bool> {
-    let mut bits = Vec::with_capacity(16);
-    for i in 0..16 {
-        bits.push((n & (1 << i)) != 0);
-    }
-    bits
-}
-
-pub fn bools_to_u8(bits: &[bool]) -> u8 {
-    let mut result: u8 = 0;
-    for (index, &bit) in bits.iter().enumerate().take(8) {
-        if bit {
-            result |= 1 << index;
-        }
-    }
-    result
-}
+use super::fq12_exp::biguint_to_bits;
 
 pub fn generate_witness(p: Fq12, n: Fr, bits_per_step: usize) -> Vec<PartialExpStatementWitness> {
     let n_biguint: BigUint = n.into();
-    let n_bytes = n_biguint.to_bytes_le();
-    let mut bits = n_bytes.iter().flat_map(|a| u8_to_bools(*a)).collect_vec();
+    let mut bits = biguint_to_bits(&n_biguint);
 
     // pad with false
     let rem = bits.len() % bits_per_step;
@@ -156,7 +131,9 @@ mod tests {
     use num_bigint::BigUint;
     use rand::Rng;
 
-    use crate::aggregation::fq12_generate_witness::{generate_witness_from_bits, u8_to_bools};
+    use crate::aggregation::{
+        fq12_exp::biguint_to_bits, fq12_generate_witness::generate_witness_from_bits,
+    };
 
     use super::generate_witness;
 
@@ -181,7 +158,7 @@ mod tests {
         let p = Fq12::rand(&mut rng);
         let x: u8 = rng.gen();
         let x_biguint: BigUint = x.into();
-        let bits = u8_to_bools(x);
+        let bits = biguint_to_bits(&x_biguint);
         let result = p.pow(&x_biguint.to_u64_digits());
 
         let statements = generate_witness_from_bits(p, bits, 4);
