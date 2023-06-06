@@ -297,8 +297,8 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F>
     }
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, Fq12>
-    for Fq12Target<F, D>
+impl<F: RichField + Extendable<D>, const D: usize>
+    RecursiveCircuitTarget<F, D, Fq12Target<F, D>, Fq12> for Fq12Target<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {
         self.coeffs.iter().flat_map(|c| c.to_vec()).collect()

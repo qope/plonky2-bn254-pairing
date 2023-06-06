@@ -59,7 +59,8 @@ fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
 }
 
 impl<F: RichField + Extendable<D>, const D: usize>
-    RecursiveCircuitTarget<F, D, PartialExpStatementWitness> for PartialExpStatement<F, D>
+    RecursiveCircuitTarget<F, D, PartialExpStatement<F, D>, PartialExpStatementWitness>
+    for PartialExpStatement<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {
         let mut output = vec![];
@@ -167,64 +168,65 @@ pub struct AggregationTarget {
     pub p_x: Fq12Target<GoldilocksField, 2>,
 }
 
-pub struct AggregationPublicInputs<F: RichField + Extendable<D>, const D: usize> {
-    pub p: Fq12Target<F, D>,
-    pub p_x: Fq12Target<F, D>,
-    pub bits: Vec<BoolTarget>,
-}
+// pub struct AggregationPublicInputs<F: RichField + Extendable<D>, const D: usize> {
+//     pub p: Fq12Target<F, D>,
+//     pub p_x: Fq12Target<F, D>,
+//     pub bits: Vec<BoolTarget>,
+// }
 
-pub struct AggregationWitness {
-    pub p: Fq12,
-    pub p_x: Fq12,
-    pub bits: Vec<bool>,
-}
+// pub struct AggregationWitness {
+//     pub p: Fq12,
+//     pub p_x: Fq12,
+//     pub bits: Vec<bool>,
+// }
 
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, AggregationWitness>
-    for AggregationPublicInputs<F, D>
-{
-    fn to_vec(&self) -> Vec<Target> {
-        self.p
-            .to_vec()
-            .iter()
-            .chain(self.p_x.to_vec().iter())
-            .chain(self.bits.iter().map(|b| &b.target))
-            .cloned()
-            .collect_vec()
-    }
+// impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, AggregationWitness>
+//     for AggregationPublicInputs<F, D>
+// {
+//     fn to_vec(&self) -> Vec<Target> {
+//         self.p
+//             .to_vec()
+//             .iter()
+//             .chain(self.p_x.to_vec().iter())
+//             .chain(self.bits.iter().map(|b| &b.target))
+//             .cloned()
+//             .collect_vec()
+//     }
 
-    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
-        let num_lims = FqTarget::<F, D>::num_max_limbs();
-        let num_fq12_lims = 12 * num_lims;
-        let mut input = input.to_vec();
-        let p_raw = input.drain(0..num_fq12_lims).collect_vec();
-        let p_x_raw = input.drain(0..num_fq12_lims).collect_vec();
-        let bits_raw = input.drain(0..NUM_BITS).collect_vec();
+//     fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+//         let num_lims = FqTarget::<F, D>::num_max_limbs();
+//         let num_fq12_lims = 12 * num_lims;
+//         let mut input = input.to_vec();
+//         let p_raw = input.drain(0..num_fq12_lims).collect_vec();
+//         let p_x_raw = input.drain(0..num_fq12_lims).collect_vec();
+//         let bits_raw = input.drain(0..NUM_BITS).collect_vec();
+//         assert_eq!(input.len(), 0);
 
-        let p = Fq12Target::from_vec(builder, &p_raw);
-        let p_x = Fq12Target::from_vec(builder, &p_x_raw);
-        let bits = bits_raw
-            .iter()
-            .map(|_| builder.add_virtual_bool_target_safe())
-            .collect_vec();
-        bits_raw
-            .iter()
-            .zip(bits.iter())
-            .map(|(b0, b1)| builder.connect(*b0, b1.target))
-            .for_each(drop);
-        Self { p, p_x, bits }
-    }
+//         let p = Fq12Target::from_vec(builder, &p_raw);
+//         let p_x = Fq12Target::from_vec(builder, &p_x_raw);
+//         let bits = bits_raw
+//             .iter()
+//             .map(|_| builder.add_virtual_bool_target_safe())
+//             .collect_vec();
+//         bits_raw
+//             .iter()
+//             .zip(bits.iter())
+//             .map(|(b0, b1)| builder.connect(*b0, b1.target))
+//             .for_each(drop);
+//         Self { p, p_x, bits }
+//     }
 
-    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &AggregationWitness) {
-        self.p.set_witness(pw, &value.p);
-        self.p_x.set_witness(pw, &value.p_x);
-        self.bits
-            .iter()
-            .cloned()
-            .zip(&value.bits)
-            .map(|(bit_t, bit)| pw.set_bool_target(bit_t, *bit))
-            .for_each(drop);
-    }
-}
+//     fn set_witness(&self, pw: &mut PartialWitness<F>, value: &AggregationWitness) {
+//         self.p.set_witness(pw, &value.p);
+//         self.p_x.set_witness(pw, &value.p_x);
+//         self.bits
+//             .iter()
+//             .cloned()
+//             .zip(&value.bits)
+//             .map(|(bit_t, bit)| pw.set_bool_target(bit_t, *bit))
+//             .for_each(drop);
+//     }
+// }
 
 pub fn build_aggregation_circuit(
     inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,

@@ -1,7 +1,6 @@
 use anyhow::Result;
-use bitvec::prelude::*;
+use ark_bn254::G2Affine;
 use itertools::Itertools;
-use num_bigint::BigUint;
 use plonky2::{
     field::{extension::Extendable, goldilocks_field::GoldilocksField},
     hash::hash_types::RichField,
@@ -26,7 +25,7 @@ use super::g2_exp_witness::{gen_rando, PartialExpStatementWitness};
 
 const NUM_BITS: usize = 6;
 
-pub struct PartialExpStatement<F: RichField + Extendable<D>, const D: usize> {
+pub struct PartialG2ExpStatement<F: RichField + Extendable<D>, const D: usize> {
     bits: Vec<BoolTarget>,
     start: G2Target<F, D>,
     end: G2Target<F, D>,
@@ -34,9 +33,9 @@ pub struct PartialExpStatement<F: RichField + Extendable<D>, const D: usize> {
     end_square: G2Target<F, D>,
 }
 
-fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
+fn verify_partial_g2_exp_statement<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
-    statement: &PartialExpStatement<F, D>,
+    statement: &PartialG2ExpStatement<F, D>,
 ) {
     let mut squares = vec![];
     let mut v = statement.start_square.clone();
@@ -57,7 +56,8 @@ fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
 }
 
 impl<F: RichField + Extendable<D>, const D: usize>
-    RecursiveCircuitTarget<F, D, PartialExpStatementWitness> for PartialExpStatement<F, D>
+    RecursiveCircuitTarget<F, D, PartialG2ExpStatement<F, D>, PartialExpStatementWitness>
+    for PartialG2ExpStatement<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {
         let mut output = vec![];
@@ -121,9 +121,9 @@ impl<F: RichField + Extendable<D>, const D: usize>
     }
 }
 
-pub fn build_circuit() -> (
+pub fn build_g2_exp_circuit() -> (
     CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    PartialExpStatement<GoldilocksField, 2>,
+    PartialG2ExpStatement<GoldilocksField, 2>,
 ) {
     const D: usize = 2;
     let config = CircuitConfig::standard_ecc_config();
@@ -131,14 +131,14 @@ pub fn build_circuit() -> (
     let bits_t = (0..NUM_BITS)
         .map(|_| builder.add_virtual_bool_target_safe())
         .collect_vec();
-    let statement_t = PartialExpStatement {
+    let statement_t = PartialG2ExpStatement {
         bits: bits_t,
         start: G2Target::new(&mut builder),
         end: G2Target::new(&mut builder),
         start_square: G2Target::new(&mut builder),
         end_square: G2Target::new(&mut builder),
     };
-    verify_partial_exp_statement(&mut builder, &statement_t);
+    verify_partial_g2_exp_statement(&mut builder, &statement_t);
 
     // register public input
     let pi_vec = statement_t.to_vec();
@@ -147,9 +147,9 @@ pub fn build_circuit() -> (
     (data, statement_t)
 }
 
-pub fn generate_proof(
+pub fn generate_g2_exp_proof(
     inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    statement_t: &PartialExpStatement<GoldilocksField, 2>,
+    statement_t: &PartialG2ExpStatement<GoldilocksField, 2>,
     statement_witness: &PartialExpStatementWitness,
 ) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>> {
     let mut pw = PartialWitness::<GoldilocksField>::new();
@@ -158,19 +158,97 @@ pub fn generate_proof(
     proof
 }
 
-pub struct AggregationTarget {
+pub struct G2ExpAggregationTarget {
     pub proofs: Vec<ProofWithPublicInputsTarget<2>>,
     pub p: G2Target<GoldilocksField, 2>,
-    pub bits: Vec<BoolTarget>,
     pub p_x: G2Target<GoldilocksField, 2>,
+    pub bits: Vec<BoolTarget>,
 }
 
-pub fn build_aggregation_circuit(
+pub struct G2ExpAggregationWitness {
+    pub proofs: Vec<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>>,
+    pub p: G2Affine,
+    pub p_x: G2Affine,
+    pub bits: Vec<bool>,
+}
+
+pub struct G2ExpAggregationPublicInputs {
+    pub p: G2Target<GoldilocksField, 2>,
+    pub p_x: G2Target<GoldilocksField, 2>,
+    pub bits: Vec<BoolTarget>,
+}
+
+impl
+    RecursiveCircuitTarget<
+        GoldilocksField,
+        2,
+        G2ExpAggregationPublicInputs,
+        G2ExpAggregationWitness,
+    > for G2ExpAggregationTarget
+{
+    fn to_vec(&self) -> Vec<Target> {
+        self.p
+            .to_vec()
+            .iter()
+            .chain(self.p_x.to_vec().iter())
+            .chain(self.bits.iter().map(|b| &b.target))
+            .cloned()
+            .collect_vec()
+    }
+
+    fn from_vec(
+        builder: &mut CircuitBuilder<GoldilocksField, 2>,
+        input: &[Target],
+    ) -> G2ExpAggregationPublicInputs {
+        let num_lims = FqTarget::<GoldilocksField, 2>::num_max_limbs();
+        let num_g2_lims = 4 * num_lims;
+        let mut input = input.to_vec();
+        let p_raw = input.drain(0..num_g2_lims).collect_vec();
+        let p_x_raw = input.drain(0..num_g2_lims).collect_vec();
+        let bits_raw = input;
+
+        let p = G2Target::from_vec(builder, &p_raw);
+        let p_x = G2Target::from_vec(builder, &p_x_raw);
+        let bits = bits_raw
+            .iter()
+            .map(|_| builder.add_virtual_bool_target_safe())
+            .collect_vec();
+        bits_raw
+            .iter()
+            .zip(bits.iter())
+            .map(|(b0, b1)| builder.connect(*b0, b1.target))
+            .for_each(drop);
+        G2ExpAggregationPublicInputs { p, p_x, bits }
+    }
+
+    fn set_witness(
+        &self,
+        pw: &mut PartialWitness<GoldilocksField>,
+        value: &G2ExpAggregationWitness,
+    ) {
+        self.proofs
+            .iter()
+            .zip(value.proofs.iter())
+            .for_each(|(p_t, p)| {
+                pw.set_proof_with_pis_target(p_t, p);
+            });
+        self.p.set_witness(pw, &value.p);
+        self.p_x.set_witness(pw, &value.p_x);
+        self.bits
+            .iter()
+            .cloned()
+            .zip(&value.bits)
+            .map(|(bit_t, bit)| pw.set_bool_target(bit_t, *bit))
+            .for_each(drop);
+    }
+}
+
+pub fn build_g2_exp_aggregation_circuit(
     inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
     num_proofs: usize,
 ) -> (
     CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    AggregationTarget,
+    G2ExpAggregationTarget,
 ) {
     let config = CircuitConfig::standard_ecc_config();
     let mut builder = CircuitBuilder::<GoldilocksField, 2>::new(config);
@@ -186,7 +264,7 @@ pub fn build_aggregation_circuit(
             &inner_data.common,
         );
         let pi_vec = proof_t.public_inputs.clone();
-        let statement = PartialExpStatement::from_vec(&mut builder, &pi_vec);
+        let statement = PartialG2ExpStatement::from_vec(&mut builder, &pi_vec);
         proofs_t.push(proof_t);
         statements.push(statement);
     }
@@ -217,28 +295,31 @@ pub fn build_aggregation_circuit(
         bits.extend(s.bits.clone());
     }
 
-    let target = AggregationTarget {
+    let target = G2ExpAggregationTarget {
         proofs: proofs_t,
         p,
         bits,
         p_x,
     };
 
+    // register public inputs
+    builder.register_public_inputs(&target.to_vec());
+
     let data = builder.build();
 
     (data, target)
 }
 
-pub fn biguint_to_bits(x: &BigUint) -> Vec<bool> {
-    let limbs = x.to_bytes_le();
-    let mut bits = vec![];
-    for limb in limbs {
-        let limb_bits = limb.view_bits::<Lsb0>().iter().map(|b| *b).collect_vec();
-        bits.extend(limb_bits);
-    }
-    bits
+pub fn generate_g2_exp_aggregation_proof(
+    data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
+    aggregation_t: &G2ExpAggregationTarget,
+    aggregation_witness: &G2ExpAggregationWitness,
+) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>> {
+    let mut pw = PartialWitness::<GoldilocksField>::new();
+    aggregation_t.set_witness(&mut pw, aggregation_witness);
+    let proof = data.prove(pw);
+    proof
 }
-
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -260,17 +341,22 @@ mod tests {
 
     use crate::{
         aggregation::{
+            fq12_exp::biguint_to_bits,
             g2_exp::{
-                biguint_to_bits, build_aggregation_circuit, build_circuit, generate_proof,
-                verify_partial_exp_statement, PartialExpStatement, NUM_BITS,
+                build_g2_exp_aggregation_circuit, build_g2_exp_circuit, generate_g2_exp_proof,
+                verify_partial_g2_exp_statement, PartialG2ExpStatement, NUM_BITS,
             },
             g2_exp_witness::{
-                gen_rando, generate_witness, partial_exp_statement_witness,
+                gen_rando, generate_witness, get_num_statements, partial_exp_statement_witness,
                 PartialExpStatementWitnessInput, PartialExpStatementWitnessOutput,
             },
         },
         curves::g2curve_target::G2Target,
         traits::recursive_circuit_target::RecursiveCircuitTarget,
+    };
+
+    use super::{
+        generate_g2_exp_aggregation_proof, G2ExpAggregationTarget, G2ExpAggregationWitness,
     };
 
     type F = GoldilocksField;
@@ -301,9 +387,9 @@ mod tests {
         let end_square_t = G2Target::constant(&mut builder, end_square);
         let bits_t = bits.iter().map(|b| builder.constant_bool(*b)).collect_vec();
 
-        verify_partial_exp_statement(
+        verify_partial_g2_exp_statement(
             &mut builder,
-            &PartialExpStatement {
+            &PartialG2ExpStatement {
                 bits: bits_t,
                 start: start_t,
                 end: end_t,
@@ -321,7 +407,7 @@ mod tests {
     #[test]
     fn test_g2_aggregation() {
         let now = Instant::now();
-        let (inner_data, statement_t) = build_circuit();
+        let (inner_data, statement_t) = build_g2_exp_circuit();
         let mut rng = rand::thread_rng();
         let p = G2Affine::rand(&mut rng);
         let x = Fr::rand(&mut rng);
@@ -342,7 +428,7 @@ mod tests {
         let now = Instant::now();
         let proofs: Vec<_> = statements_witness
             .par_iter()
-            .map(|sw| generate_proof(&inner_data, &statement_t, sw).unwrap())
+            .map(|sw| generate_g2_exp_proof(&inner_data, &statement_t, sw).unwrap())
             .collect();
         println!(
             "{} proofs generation took: {} secs",
@@ -352,7 +438,7 @@ mod tests {
 
         let now = Instant::now();
         let (data, aggregation_t) =
-            build_aggregation_circuit(&inner_data, statements_witness.len());
+            build_g2_exp_aggregation_circuit(&inner_data, statements_witness.len());
         println!(
             "Aggregation circuit construction took {} secs",
             now.elapsed().as_secs()
@@ -378,5 +464,52 @@ mod tests {
         let now = Instant::now();
         let _proof = data.prove(pw).unwrap();
         println!("Aggregation took {} secs", now.elapsed().as_secs());
+    }
+
+    #[test]
+    fn test_recursive_g2_aggregation() {
+        let mut rng = rand::thread_rng();
+        let p = G2Affine::rand(&mut rng);
+        let x = Fr::from(20);
+        let p_x = (p * x).into();
+        let x_biguint: BigUint = x.into();
+        let bits = biguint_to_bits(&x_biguint);
+
+        let num_statements = get_num_statements(bits.len(), NUM_BITS);
+        let (inner_data, statement_t) = build_g2_exp_circuit();
+        let (data, aggregation_t) = build_g2_exp_aggregation_circuit(&inner_data, num_statements);
+
+        // witness generation
+        let statements_witness = generate_witness(p, bits.clone(), NUM_BITS);
+        let proofs: Vec<_> = statements_witness
+            .par_iter()
+            .map(|sw| generate_g2_exp_proof(&inner_data, &statement_t, sw).unwrap())
+            .collect();
+
+        // set witness
+        let aggregation_witness = G2ExpAggregationWitness {
+            proofs,
+            p,
+            p_x,
+            bits: bits.clone(),
+        };
+        let proof =
+            generate_g2_exp_aggregation_proof(&data, &aggregation_t, &aggregation_witness).unwrap();
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+
+        let verifier_target = builder.constant_verifier_data(&data.verifier_only);
+        let proof_t = builder.add_virtual_proof_with_pis(&data.common);
+        let pi = G2ExpAggregationTarget::from_vec(&mut builder, &proof_t.public_inputs);
+        builder.verify_proof::<C>(&proof_t, &verifier_target, &data.common);
+
+        let mut pw = PartialWitness::new();
+        pw.set_proof_with_pis_target(&proof_t, &proof);
+        pi.p.set_witness(&mut pw, &p);
+        pi.p_x.set_witness(&mut pw, &p_x);
+
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw).unwrap();
     }
 }

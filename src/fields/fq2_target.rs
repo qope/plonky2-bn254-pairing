@@ -19,8 +19,8 @@ use plonky2_ecdsa::gadgets::{
 };
 
 use crate::{
-    traits::recursive_circuit_target::RecursiveCircuitTarget,
     fields::{bn254base::Bn254Base, fq_target::FqTarget, native::from_biguint_to_fq},
+    traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
 use super::{debug_tools::print_fq_target, native::sgn0_fq2};
@@ -462,8 +462,8 @@ impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F> for Fq2Sqr
     }
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, Fq2>
-    for Fq2Target<F, D>
+impl<F: RichField + Extendable<D>, const D: usize>
+    RecursiveCircuitTarget<F, D, Fq2Target<F, D>, Fq2> for Fq2Target<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {
         self.coeffs.iter().flat_map(|c| c.to_vec()).collect()

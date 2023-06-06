@@ -216,7 +216,7 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
     }
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, Fq>
+impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, FqTarget<F, D>, Fq>
     for FqTarget<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {

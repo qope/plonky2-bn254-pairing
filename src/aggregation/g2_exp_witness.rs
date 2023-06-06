@@ -31,6 +31,12 @@ pub fn gen_rando() -> G2Affine {
     rando
 }
 
+pub fn get_num_statements(bits: usize, bits_per_step: usize) -> usize {
+    let rem = bits % bits_per_step;
+    let to_padd = if rem == 0 { 0 } else { bits_per_step - rem };
+    (bits + to_padd) / bits_per_step
+}
+
 pub fn generate_witness(
     p: G2Affine,
     bits: Vec<bool>,

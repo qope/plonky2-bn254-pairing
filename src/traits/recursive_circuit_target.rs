@@ -5,10 +5,10 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 
-pub trait RecursiveCircuitTarget<F: RichField + Extendable<D>, const D: usize, V> {
+pub trait RecursiveCircuitTarget<F: RichField + Extendable<D>, const D: usize, PI, V> {
     fn to_vec(&self) -> Vec<Target>;
 
-    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self;
+    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> PI;
 
     fn set_witness(&self, pw: &mut PartialWitness<F>, value: &V);
 }

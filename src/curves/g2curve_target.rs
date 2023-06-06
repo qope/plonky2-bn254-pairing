@@ -140,8 +140,8 @@ impl<F: RichField + Extendable<D>, const D: usize> G2Target<F, D> {
     }
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, G2Affine>
-    for G2Target<F, D>
+impl<F: RichField + Extendable<D>, const D: usize>
+    RecursiveCircuitTarget<F, D, G2Target<F, D>, G2Affine> for G2Target<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {
         self.x.to_vec().into_iter().chain(self.y.to_vec()).collect()

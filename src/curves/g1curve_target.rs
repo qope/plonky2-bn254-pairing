@@ -255,8 +255,8 @@ pub fn curve_msm_circuit<F: RichField + Extendable<D>, const D: usize>(
     result
 }
 
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, G1Affine>
-    for G1Target<F, D>
+impl<F: RichField + Extendable<D>, const D: usize>
+    RecursiveCircuitTarget<F, D, G1Target<F, D>, G1Affine> for G1Target<F, D>
 {
     fn to_vec(&self) -> Vec<Target> {
         self.x.to_vec().into_iter().chain(self.y.to_vec()).collect()
