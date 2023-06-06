@@ -1,48 +1,28 @@
-use ark_bn254::{Fq12, Fr};
+use ark_bn254::Fq12;
 use itertools::Itertools;
-use num_bigint::BigUint;
 use num_traits::One;
 
-use super::fq12_exp::biguint_to_bits;
-
-pub fn generate_witness(p: Fq12, n: Fr, bits_per_step: usize) -> Vec<PartialExpStatementWitness> {
-    let n_biguint: BigUint = n.into();
-    let mut bits = biguint_to_bits(&n_biguint);
-
-    // pad with false
-    let rem = bits.len() % bits_per_step;
-    bits.extend(vec![false; rem]);
-
-    let mut start = Fq12::one();
-    let mut cur_square = p;
-
-    let statements = bits
-        .iter()
-        .cloned()
-        .chunks(bits_per_step)
-        .into_iter()
-        .map(|bit_chunk| {
-            let input = PartialExpStatementWitnessInput {
-                bits: bit_chunk.collect_vec(),
-                start,
-                start_square: cur_square,
-            };
-            let output = partial_exp_statement_witness(&input);
-            start = output.end;
-            cur_square = output.end_square;
-            PartialExpStatementWitness {
-                bits: input.bits,
-                start: input.start,
-                end: output.end,
-                start_square: input.start_square,
-                end_square: output.end_square,
-            }
-        })
-        .collect_vec();
-    statements
+pub struct PartialExpStatementWitnessInput {
+    pub bits: Vec<bool>,
+    pub start: Fq12,
+    pub start_square: Fq12,
 }
 
-pub fn generate_witness_from_bits(
+pub struct PartialExpStatementWitnessOutput {
+    pub end: Fq12,
+    pub end_square: Fq12,
+}
+
+#[derive(Clone, Debug)]
+pub struct PartialExpStatementWitness {
+    pub bits: Vec<bool>,
+    pub start: Fq12,
+    pub end: Fq12,
+    pub start_square: Fq12,
+    pub end_square: Fq12,
+}
+
+pub fn generate_witness(
     p: Fq12,
     bits: Vec<bool>,
     bits_per_step: usize,
@@ -84,26 +64,6 @@ pub fn generate_witness_from_bits(
     statements
 }
 
-pub struct PartialExpStatementWitnessInput {
-    pub bits: Vec<bool>,
-    pub start: Fq12,
-    pub start_square: Fq12,
-}
-
-pub struct PartialExpStatementWitnessOutput {
-    pub end: Fq12,
-    pub end_square: Fq12,
-}
-
-#[derive(Clone, Debug)]
-pub struct PartialExpStatementWitness {
-    pub bits: Vec<bool>,
-    pub start: Fq12,
-    pub end: Fq12,
-    pub start_square: Fq12,
-    pub end_square: Fq12,
-}
-
 pub fn partial_exp_statement_witness(
     statement: &PartialExpStatementWitnessInput,
 ) -> PartialExpStatementWitnessOutput {
@@ -125,35 +85,16 @@ pub fn partial_exp_statement_witness(
 
 #[cfg(test)]
 mod tests {
-    use ark_bn254::{Fq12, Fr};
+    use ark_bn254::Fq12;
     use ark_ff::Field;
     use ark_std::UniformRand;
     use num_bigint::BigUint;
     use rand::Rng;
 
-    use crate::aggregation::{
-        fq12_exp::biguint_to_bits, fq12_generate_witness::generate_witness_from_bits,
-    };
-
-    use super::generate_witness;
+    use crate::aggregation::{fq12_exp::biguint_to_bits, fq12_exp_witness::generate_witness};
 
     #[test]
     fn test_generate_witness() {
-        let mut rng = rand::thread_rng();
-        let p = Fq12::rand(&mut rng);
-        let x = Fr::rand(&mut rng);
-
-        let x_biguint: BigUint = x.into();
-        let result = p.pow(&x_biguint.to_u64_digits());
-
-        let statement = generate_witness(p, x, 4);
-        let end = statement.last().unwrap().end;
-
-        assert_eq!(end, result);
-    }
-
-    #[test]
-    fn test_generate_witness_from_bits() {
         let mut rng = rand::thread_rng();
         let p = Fq12::rand(&mut rng);
         let x: u8 = rng.gen();
@@ -161,7 +102,7 @@ mod tests {
         let bits = biguint_to_bits(&x_biguint);
         let result = p.pow(&x_biguint.to_u64_digits());
 
-        let statements = generate_witness_from_bits(p, bits, 4);
+        let statements = generate_witness(p, bits, 4);
         let end = statements.last().unwrap().end;
 
         assert_eq!(end, result);

@@ -1,13 +1,22 @@
 use ark_bn254::G2Affine;
 use ark_std::UniformRand;
+use itertools::Itertools;
 use plonky2::{
-    field::extension::Extendable, hash::hash_types::RichField, iop::target::BoolTarget,
+    field::extension::Extendable,
+    hash::hash_types::RichField,
+    iop::{
+        target::{BoolTarget, Target},
+        witness::PartialWitness,
+    },
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::nonnative::CircuitBuilderNonNative;
 use rand::SeedableRng;
 
-use crate::fields::{fq2_target::Fq2Target, fr_target::FrTarget};
+use crate::{
+    fields::{fq2_target::Fq2Target, fq_target::FqTarget, fr_target::FrTarget},
+    traits::recursive_circuit_target::RecursiveCircuitTarget,
+};
 
 #[derive(Clone, Debug)]
 pub struct G2Target<F: RichField + Extendable<D>, const D: usize> {
@@ -128,6 +137,32 @@ impl<F: RichField + Extendable<D>, const D: usize> G2Target<F, D> {
         r = r.add(builder, &neg_rando);
 
         r
+    }
+}
+
+impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, G2Affine>
+    for G2Target<F, D>
+{
+    fn to_vec(&self) -> Vec<Target> {
+        self.x.to_vec().into_iter().chain(self.y.to_vec()).collect()
+    }
+
+    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_lims = FqTarget::<F, D>::num_max_limbs();
+        let num_fq2_lims = 2 * num_lims;
+        assert_eq!(input.len(), num_fq2_lims * 2);
+        let mut input = input.to_vec();
+        let x_raw = input.drain(0..num_fq2_lims).collect_vec();
+        let y_raw = input;
+        Self {
+            x: Fq2Target::from_vec(builder, &x_raw),
+            y: Fq2Target::from_vec(builder, &y_raw),
+        }
+    }
+
+    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &G2Affine) {
+        self.x.set_witness(pw, &value.x);
+        self.y.set_witness(pw, &value.y);
     }
 }
 

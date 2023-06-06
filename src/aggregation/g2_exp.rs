@@ -1,9 +1,7 @@
 use anyhow::Result;
-use ark_bn254::Fq12;
 use bitvec::prelude::*;
 use itertools::Itertools;
 use num_bigint::BigUint;
-use num_traits::One;
 use plonky2::{
     field::{extension::Extendable, goldilocks_field::GoldilocksField},
     hash::hash_types::RichField,
@@ -20,20 +18,20 @@ use plonky2::{
 };
 
 use crate::{
-    fields::{fq12_target::Fq12Target, fq_target::FqTarget},
+    curves::g2curve_target::G2Target, fields::fq_target::FqTarget,
     traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
-use super::fq12_exp_witness::PartialExpStatementWitness;
+use super::g2_exp_witness::{gen_rando, PartialExpStatementWitness};
 
-const NUM_BITS: usize = 5;
+const NUM_BITS: usize = 6;
 
 pub struct PartialExpStatement<F: RichField + Extendable<D>, const D: usize> {
     bits: Vec<BoolTarget>,
-    start: Fq12Target<F, D>,
-    end: Fq12Target<F, D>,
-    start_square: Fq12Target<F, D>,
-    end_square: Fq12Target<F, D>,
+    start: G2Target<F, D>,
+    end: G2Target<F, D>,
+    start_square: G2Target<F, D>,
+    end_square: G2Target<F, D>,
 }
 
 fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
@@ -44,18 +42,18 @@ fn verify_partial_exp_statement<F: RichField + Extendable<D>, const D: usize>(
     let mut v = statement.start_square.clone();
     squares.push(v.clone());
     for _ in 0..statement.bits.len() {
-        v = v.mul(builder, &v);
+        v = v.double(builder);
         squares.push(v.clone());
     }
     let end_square = squares.pop().unwrap();
 
-    Fq12Target::connect(builder, &end_square, &statement.end_square);
+    G2Target::connect(builder, &end_square, &statement.end_square);
 
     let mut r = statement.start.clone();
     for i in 0..statement.bits.len() {
-        r = r.conditional_mul(builder, &squares[i], &statement.bits[i]);
+        r = r.conditional_add(builder, &squares[i], &statement.bits[i]);
     }
-    Fq12Target::connect(builder, &r, &statement.end);
+    G2Target::connect(builder, &r, &statement.end);
 }
 
 impl<F: RichField + Extendable<D>, const D: usize>
@@ -74,14 +72,14 @@ impl<F: RichField + Extendable<D>, const D: usize>
 
     fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
         let num_limbs = FqTarget::<F, D>::num_max_limbs();
-        let num_fq12_limbs = 12 * num_limbs;
+        let num_g2_limbs = 4 * num_limbs;
 
         let mut input = input.to_vec();
         let bits_raw = input.drain(0..NUM_BITS).collect_vec();
-        let start_raw = input.drain(0..num_fq12_limbs).collect_vec();
-        let end_raw = input.drain(0..num_fq12_limbs).collect_vec();
-        let start_square_raw = input.drain(0..num_fq12_limbs).collect_vec();
-        let end_square_raw = input.drain(0..num_fq12_limbs).collect_vec();
+        let start_raw = input.drain(0..num_g2_limbs).collect_vec();
+        let end_raw = input.drain(0..num_g2_limbs).collect_vec();
+        let start_square_raw = input.drain(0..num_g2_limbs).collect_vec();
+        let end_square_raw = input.drain(0..num_g2_limbs).collect_vec();
 
         assert_eq!(input.len(), 0);
 
@@ -95,10 +93,10 @@ impl<F: RichField + Extendable<D>, const D: usize>
             .zip(bits.clone())
             .map(|(b0, b1)| builder.connect(b0, b1.target))
             .for_each(drop);
-        let start = Fq12Target::from_vec(builder, &start_raw);
-        let end = Fq12Target::from_vec(builder, &end_raw);
-        let start_square = Fq12Target::from_vec(builder, &start_square_raw);
-        let end_square = Fq12Target::from_vec(builder, &end_square_raw);
+        let start = G2Target::from_vec(builder, &start_raw);
+        let end = G2Target::from_vec(builder, &end_raw);
+        let start_square = G2Target::from_vec(builder, &start_square_raw);
+        let end_square = G2Target::from_vec(builder, &end_square_raw);
 
         Self {
             bits,
@@ -135,10 +133,10 @@ pub fn build_circuit() -> (
         .collect_vec();
     let statement_t = PartialExpStatement {
         bits: bits_t,
-        start: Fq12Target::new(&mut builder),
-        end: Fq12Target::new(&mut builder),
-        start_square: Fq12Target::new(&mut builder),
-        end_square: Fq12Target::new(&mut builder),
+        start: G2Target::new(&mut builder),
+        end: G2Target::new(&mut builder),
+        start_square: G2Target::new(&mut builder),
+        end_square: G2Target::new(&mut builder),
     };
     verify_partial_exp_statement(&mut builder, &statement_t);
 
@@ -162,68 +160,9 @@ pub fn generate_proof(
 
 pub struct AggregationTarget {
     pub proofs: Vec<ProofWithPublicInputsTarget<2>>,
-    pub p: Fq12Target<GoldilocksField, 2>,
+    pub p: G2Target<GoldilocksField, 2>,
     pub bits: Vec<BoolTarget>,
-    pub p_x: Fq12Target<GoldilocksField, 2>,
-}
-
-pub struct AggregationPublicInputs<F: RichField + Extendable<D>, const D: usize> {
-    pub p: Fq12Target<F, D>,
-    pub p_x: Fq12Target<F, D>,
-    pub bits: Vec<BoolTarget>,
-}
-
-pub struct AggregationWitness {
-    pub p: Fq12,
-    pub p_x: Fq12,
-    pub bits: Vec<bool>,
-}
-
-impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, AggregationWitness>
-    for AggregationPublicInputs<F, D>
-{
-    fn to_vec(&self) -> Vec<Target> {
-        self.p
-            .to_vec()
-            .iter()
-            .chain(self.p_x.to_vec().iter())
-            .chain(self.bits.iter().map(|b| &b.target))
-            .cloned()
-            .collect_vec()
-    }
-
-    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
-        let num_lims = FqTarget::<F, D>::num_max_limbs();
-        let num_fq12_lims = 12 * num_lims;
-        let mut input = input.to_vec();
-        let p_raw = input.drain(0..num_fq12_lims).collect_vec();
-        let p_x_raw = input.drain(0..num_fq12_lims).collect_vec();
-        let bits_raw = input.drain(0..NUM_BITS).collect_vec();
-
-        let p = Fq12Target::from_vec(builder, &p_raw);
-        let p_x = Fq12Target::from_vec(builder, &p_x_raw);
-        let bits = bits_raw
-            .iter()
-            .map(|_| builder.add_virtual_bool_target_safe())
-            .collect_vec();
-        bits_raw
-            .iter()
-            .zip(bits.iter())
-            .map(|(b0, b1)| builder.connect(*b0, b1.target))
-            .for_each(drop);
-        Self { p, p_x, bits }
-    }
-
-    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &AggregationWitness) {
-        self.p.set_witness(pw, &value.p);
-        self.p_x.set_witness(pw, &value.p_x);
-        self.bits
-            .iter()
-            .cloned()
-            .zip(&value.bits)
-            .map(|(bit_t, bit)| pw.set_bool_target(bit_t, *bit))
-            .for_each(drop);
-    }
+    pub p_x: G2Target<GoldilocksField, 2>,
 }
 
 pub fn build_aggregation_circuit(
@@ -253,11 +192,13 @@ pub fn build_aggregation_circuit(
     }
 
     // verify boundry condition
-    let one = Fq12Target::constant(&mut builder, Fq12::one());
+    let rando = G2Target::constant(&mut builder, gen_rando());
     let start = statements.first().unwrap().start.clone();
-    Fq12Target::connect(&mut builder, &start, &one);
+    G2Target::connect(&mut builder, &start, &rando);
     let p = statements.first().unwrap().start_square.clone();
-    let p_x = statements.last().unwrap().end.clone();
+    let end = statements.last().unwrap().end.clone();
+    let neg_rando = G2Target::constant(&mut builder, -gen_rando());
+    let p_x = end.add(&mut builder, &neg_rando);
 
     // verify transition rule
     for i in 1..statements.len() {
@@ -265,8 +206,8 @@ pub fn build_aggregation_circuit(
         let prev_end_square = statements[i - 1].end_square.clone();
         let start = statements[i].start.clone();
         let start_square = statements[i].start_square.clone();
-        Fq12Target::connect(&mut builder, &start, &prev_end);
-        Fq12Target::connect(&mut builder, &start_square, &prev_end_square);
+        G2Target::connect(&mut builder, &start, &prev_end);
+        G2Target::connect(&mut builder, &start_square, &prev_end_square);
     }
 
     // verify bit decomposition
@@ -302,8 +243,7 @@ pub fn biguint_to_bits(x: &BigUint) -> Vec<bool> {
 mod tests {
     use std::time::Instant;
 
-    use ark_bn254::{Fq12, Fr};
-    use ark_ff::Field;
+    use ark_bn254::{Fr, G2Affine};
     use ark_std::UniformRand;
     use itertools::Itertools;
     use num_bigint::BigUint;
@@ -318,18 +258,18 @@ mod tests {
     use rand::Rng;
     use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
-    use super::{
-        build_aggregation_circuit, build_circuit, verify_partial_exp_statement, PartialExpStatement,
-    };
     use crate::{
         aggregation::{
-            fq12_exp::{biguint_to_bits, generate_proof, NUM_BITS},
-            fq12_exp_witness::{
-                generate_witness, partial_exp_statement_witness, PartialExpStatementWitness,
+            g2_exp::{
+                biguint_to_bits, build_aggregation_circuit, build_circuit, generate_proof,
+                verify_partial_exp_statement, PartialExpStatement, NUM_BITS,
+            },
+            g2_exp_witness::{
+                gen_rando, generate_witness, partial_exp_statement_witness,
                 PartialExpStatementWitnessInput, PartialExpStatementWitnessOutput,
             },
         },
-        fields::fq12_target::Fq12Target,
+        curves::g2curve_target::G2Target,
         traits::recursive_circuit_target::RecursiveCircuitTarget,
     };
 
@@ -338,15 +278,15 @@ mod tests {
     type C = PoseidonGoldilocksConfig;
 
     #[test]
-    fn test_verify_partial_exp_statement() {
+    fn test_verify_partial_g2_exp_statement() {
         let config = CircuitConfig::standard_ecc_config();
         let mut builder = CircuitBuilder::<F, D>::new(config);
 
         let mut rng = rand::thread_rng();
 
         // make witness
-        let start = Fq12::rand(&mut rng);
-        let start_square = Fq12::rand(&mut rng);
+        let start = G2Affine::rand(&mut rng);
+        let start_square = G2Affine::rand(&mut rng);
         let bits: Vec<bool> = vec![rng.gen(); 5];
         let PartialExpStatementWitnessOutput { end, end_square } =
             partial_exp_statement_witness(&PartialExpStatementWitnessInput {
@@ -355,10 +295,10 @@ mod tests {
                 start_square,
             });
 
-        let start_t = Fq12Target::constant(&mut builder, start);
-        let end_t = Fq12Target::constant(&mut builder, end);
-        let start_square_t = Fq12Target::constant(&mut builder, start_square);
-        let end_square_t = Fq12Target::constant(&mut builder, end_square);
+        let start_t = G2Target::constant(&mut builder, start);
+        let end_t = G2Target::constant(&mut builder, end);
+        let start_square_t = G2Target::constant(&mut builder, start_square);
+        let end_square_t = G2Target::constant(&mut builder, end_square);
         let bits_t = bits.iter().map(|b| builder.constant_bool(*b)).collect_vec();
 
         verify_partial_exp_statement(
@@ -379,44 +319,20 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_proof() {
-        let (inner_data, statement_target) = build_circuit();
-        let mut rng = rand::thread_rng();
-        // make witness
-        let start = Fq12::rand(&mut rng);
-        let start_square = Fq12::rand(&mut rng);
-        let bits: Vec<bool> = vec![rng.gen(); NUM_BITS];
-        let PartialExpStatementWitnessOutput { end, end_square } =
-            partial_exp_statement_witness(&PartialExpStatementWitnessInput {
-                bits: bits.clone(),
-                start,
-                start_square,
-            });
-        let sw = PartialExpStatementWitness {
-            bits,
-            start,
-            end,
-            start_square,
-            end_square,
-        };
-        let _proof = generate_proof(&inner_data, &statement_target, &sw).unwrap();
-    }
-
-    #[test]
-    fn test_fq12_aggregation() {
+    fn test_g2_aggregation() {
         let now = Instant::now();
         let (inner_data, statement_t) = build_circuit();
         let mut rng = rand::thread_rng();
-        let p = Fq12::rand(&mut rng);
-        // let x = Fr::rand(&mut rng);
-        let x = -Fr::from(1);
+        let p = G2Affine::rand(&mut rng);
+        let x = Fr::rand(&mut rng);
         let x_biguint: BigUint = x.into();
         let bits = biguint_to_bits(&x_biguint);
 
         let statements_witness = generate_witness(p, bits.clone(), NUM_BITS);
 
-        let p_x = p.pow(&x_biguint.to_u64_digits());
-        assert_eq!(statements_witness.last().unwrap().end, p_x);
+        let p_x: G2Affine = (p * x).into();
+        let result: G2Affine = (statements_witness.last().unwrap().end - gen_rando()).into();
+        assert_eq!(result, p_x);
         println!(
             "Step circuit construction took {} secs",
             now.elapsed().as_secs()
