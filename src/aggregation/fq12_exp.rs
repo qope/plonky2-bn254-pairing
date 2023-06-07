@@ -501,7 +501,7 @@ mod tests {
     // }
 
     #[test]
-    fn test_recursive_g2_aggregation() {
+    fn test_recursive_fq12_aggregation() {
         let mut rng = rand::thread_rng();
         let p = Fq12::rand(&mut rng);
         let x = Fr::rand(&mut rng);
