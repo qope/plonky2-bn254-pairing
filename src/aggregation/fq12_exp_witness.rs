@@ -1,6 +1,8 @@
-use ark_bn254::Fq12;
+use ark_bn254::{Fq12, Fr};
 use itertools::Itertools;
 use num_traits::One;
+
+use crate::aggregation::fq12_exp::biguint_to_bits;
 
 pub struct PartialExpStatementWitnessInput {
     pub bits: Vec<bool>,
@@ -62,6 +64,19 @@ pub fn generate_witness(
         .collect_vec();
 
     statements
+}
+
+pub fn generate_fq12_exp_witness_from_x(
+    p: Fq12,
+    x: Fr,
+    bits_per_step: usize,
+) -> Vec<PartialExpStatementWitness> {
+    // decompose x to 256bits
+    let mut bits = biguint_to_bits(&x.into());
+    let to_padd = 256 - bits.len();
+    bits.extend(vec![false; to_padd]);
+    assert_eq!(bits.len(), 256);
+    generate_witness(p, bits, bits_per_step)
 }
 
 pub fn partial_exp_statement_witness(
