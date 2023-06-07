@@ -1,7 +1,9 @@
-use ark_bn254::G2Affine;
+use ark_bn254::{Fr, G2Affine};
 use ark_std::UniformRand;
 use itertools::Itertools;
 use rand::SeedableRng;
+
+use super::fq12_exp::biguint_to_bits;
 
 pub const RAND_SEED: u64 = 42;
 
@@ -77,6 +79,19 @@ pub fn generate_witness(
         .collect_vec();
 
     statements
+}
+
+pub fn generate_witness_from_x(
+    p: G2Affine,
+    x: Fr,
+    bits_per_step: usize,
+) -> Vec<PartialExpStatementWitness> {
+    // decompose x to 256bits
+    let mut bits = biguint_to_bits(&x.into());
+    let to_padd = 256 - bits.len();
+    bits.extend(vec![false; to_padd]);
+    assert_eq!(bits.len(), 256);
+    generate_witness(p, bits, bits_per_step)
 }
 
 pub fn partial_exp_statement_witness(

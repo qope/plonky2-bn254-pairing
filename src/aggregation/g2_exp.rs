@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ark_bn254::G2Affine;
+use ark_bn254::{Fr, G2Affine};
 use itertools::Itertools;
 use plonky2::{
     field::{extension::Extendable, goldilocks_field::GoldilocksField},
@@ -17,7 +17,8 @@ use plonky2::{
 };
 
 use crate::{
-    curves::g2curve_target::G2Target, fields::fq_target::FqTarget,
+    curves::g2curve_target::G2Target,
+    fields::{fq_target::FqTarget, fr_target::FrTarget},
     traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
@@ -162,20 +163,20 @@ pub struct G2ExpAggregationTarget {
     pub proofs: Vec<ProofWithPublicInputsTarget<2>>,
     pub p: G2Target<GoldilocksField, 2>,
     pub p_x: G2Target<GoldilocksField, 2>,
-    pub bits: Vec<BoolTarget>,
+    pub x: FrTarget<GoldilocksField, 2>,
 }
 
 pub struct G2ExpAggregationWitness {
     pub proofs: Vec<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>>,
     pub p: G2Affine,
     pub p_x: G2Affine,
-    pub bits: Vec<bool>,
+    pub x: Fr,
 }
 
 pub struct G2ExpAggregationPublicInputs {
     pub p: G2Target<GoldilocksField, 2>,
     pub p_x: G2Target<GoldilocksField, 2>,
-    pub bits: Vec<BoolTarget>,
+    pub x: FrTarget<GoldilocksField, 2>,
 }
 
 impl
@@ -191,7 +192,7 @@ impl
             .to_vec()
             .iter()
             .chain(self.p_x.to_vec().iter())
-            .chain(self.bits.iter().map(|b| &b.target))
+            .chain(self.x.to_vec().iter())
             .cloned()
             .collect_vec()
     }
@@ -200,25 +201,19 @@ impl
         builder: &mut CircuitBuilder<GoldilocksField, 2>,
         input: &[Target],
     ) -> G2ExpAggregationPublicInputs {
-        let num_lims = FqTarget::<GoldilocksField, 2>::num_max_limbs();
-        let num_g2_lims = 4 * num_lims;
+        let num_limbs = FqTarget::<GoldilocksField, 2>::num_max_limbs();
+        let num_g2_limbs = 4 * num_limbs;
+        let num_fr_limbs = FrTarget::<GoldilocksField, 2>::num_max_limbs();
         let mut input = input.to_vec();
-        let p_raw = input.drain(0..num_g2_lims).collect_vec();
-        let p_x_raw = input.drain(0..num_g2_lims).collect_vec();
-        let bits_raw = input;
+        let p_raw = input.drain(0..num_g2_limbs).collect_vec();
+        let p_x_raw = input.drain(0..num_g2_limbs).collect_vec();
+        let x_raw = input.drain(0..num_fr_limbs).collect_vec();
+        assert_eq!(input.len(), 0);
 
         let p = G2Target::from_vec(builder, &p_raw);
         let p_x = G2Target::from_vec(builder, &p_x_raw);
-        let bits = bits_raw
-            .iter()
-            .map(|_| builder.add_virtual_bool_target_safe())
-            .collect_vec();
-        bits_raw
-            .iter()
-            .zip(bits.iter())
-            .map(|(b0, b1)| builder.connect(*b0, b1.target))
-            .for_each(drop);
-        G2ExpAggregationPublicInputs { p, p_x, bits }
+        let x = FrTarget::from_vec(builder, &x_raw);
+        G2ExpAggregationPublicInputs { p, p_x, x }
     }
 
     fn set_witness(
@@ -234,12 +229,7 @@ impl
             });
         self.p.set_witness(pw, &value.p);
         self.p_x.set_witness(pw, &value.p_x);
-        self.bits
-            .iter()
-            .cloned()
-            .zip(&value.bits)
-            .map(|(bit_t, bit)| pw.set_bool_target(bit_t, *bit))
-            .for_each(drop);
+        self.x.set_witness(pw, &value.x);
     }
 }
 
@@ -294,12 +284,23 @@ pub fn build_g2_exp_aggregation_circuit(
         assert_eq!(s.bits.len(), NUM_BITS);
         bits.extend(s.bits.clone());
     }
+    let x = FrTarget::new(&mut builder);
+    let x_bits = x.to_bits(&mut builder);
+
+    assert!(x_bits.len() <= bits.len());
+    for i in 0..x_bits.len() {
+        builder.connect(bits[i].target, x_bits[i].target);
+    }
+    let false_t = builder.constant_bool(false);
+    for i in x_bits.len()..bits.len() {
+        builder.connect(bits[i].target, false_t.target);
+    }
 
     let target = G2ExpAggregationTarget {
         proofs: proofs_t,
         p,
-        bits,
         p_x,
+        x,
     };
 
     // register public inputs
@@ -322,12 +323,9 @@ pub fn generate_g2_exp_aggregation_proof(
 }
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use ark_bn254::{Fr, G2Affine};
     use ark_std::UniformRand;
     use itertools::Itertools;
-    use num_bigint::BigUint;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
         iop::witness::{PartialWitness, WitnessWrite},
@@ -341,13 +339,12 @@ mod tests {
 
     use crate::{
         aggregation::{
-            fq12_exp::biguint_to_bits,
             g2_exp::{
                 build_g2_exp_aggregation_circuit, build_g2_exp_circuit, generate_g2_exp_proof,
                 verify_partial_g2_exp_statement, PartialG2ExpStatement, NUM_BITS,
             },
             g2_exp_witness::{
-                gen_rando, generate_witness, get_num_statements, partial_exp_statement_witness,
+                generate_witness_from_x, get_num_statements, partial_exp_statement_witness,
                 PartialExpStatementWitnessInput, PartialExpStatementWitnessOutput,
             },
         },
@@ -404,95 +401,90 @@ mod tests {
         dbg!(data.common.degree_bits());
     }
 
-    #[test]
-    fn test_g2_aggregation() {
-        let now = Instant::now();
-        let (inner_data, statement_t) = build_g2_exp_circuit();
-        let mut rng = rand::thread_rng();
-        let p = G2Affine::rand(&mut rng);
-        let x = Fr::rand(&mut rng);
-        let x_biguint: BigUint = x.into();
-        let bits = biguint_to_bits(&x_biguint);
+    // #[test]
+    // fn test_g2_aggregation() {
+    //     let now = Instant::now();
+    //     let (inner_data, statement_t) = build_g2_exp_circuit();
+    //     let mut rng = rand::thread_rng();
+    //     let p = G2Affine::rand(&mut rng);
+    //     let x = Fr::rand(&mut rng);
+    //     let x_biguint: BigUint = x.into();
+    //     let bits = biguint_to_bits(&x_biguint);
 
-        let statements_witness = generate_witness(p, bits.clone(), NUM_BITS);
+    //     let statements_witness = generate_witness(p, bits.clone(), NUM_BITS);
 
-        let p_x: G2Affine = (p * x).into();
-        let result: G2Affine = (statements_witness.last().unwrap().end - gen_rando()).into();
-        assert_eq!(result, p_x);
-        println!(
-            "Step circuit construction took {} secs",
-            now.elapsed().as_secs()
-        );
+    //     let p_x: G2Affine = (p * x).into();
+    //     let result: G2Affine = (statements_witness.last().unwrap().end - gen_rando()).into();
+    //     assert_eq!(result, p_x);
+    //     println!(
+    //         "Step circuit construction took {} secs",
+    //         now.elapsed().as_secs()
+    //     );
 
-        println!("Start of proof generation");
-        let now = Instant::now();
-        let proofs: Vec<_> = statements_witness
-            .par_iter()
-            .map(|sw| generate_g2_exp_proof(&inner_data, &statement_t, sw).unwrap())
-            .collect();
-        println!(
-            "{} proofs generation took: {} secs",
-            proofs.len(),
-            now.elapsed().as_secs()
-        );
+    //     println!("Start of proof generation");
+    //     let now = Instant::now();
+    //     let proofs: Vec<_> = statements_witness
+    //         .par_iter()
+    //         .map(|sw| generate_g2_exp_proof(&inner_data, &statement_t, sw).unwrap())
+    //         .collect();
+    //     println!(
+    //         "{} proofs generation took: {} secs",
+    //         proofs.len(),
+    //         now.elapsed().as_secs()
+    //     );
 
-        let now = Instant::now();
-        let (data, aggregation_t) =
-            build_g2_exp_aggregation_circuit(&inner_data, statements_witness.len());
-        println!(
-            "Aggregation circuit construction took {} secs",
-            now.elapsed().as_secs()
-        );
+    //     let now = Instant::now();
+    //     let (data, aggregation_t) =
+    //         build_g2_exp_aggregation_circuit(&inner_data, statements_witness.len());
+    //     println!(
+    //         "Aggregation circuit construction took {} secs",
+    //         now.elapsed().as_secs()
+    //     );
 
-        let mut pw = PartialWitness::new();
-        aggregation_t
-            .proofs
-            .iter()
-            .zip(proofs)
-            .map(|(p_t, p)| pw.set_proof_with_pis_target(&p_t, &p))
-            .for_each(drop);
-        aggregation_t.p.set_witness(&mut pw, &p);
-        aggregation_t
-            .bits
-            .iter()
-            .zip(bits)
-            .map(|(b_t, b)| pw.set_bool_target(*b_t, b))
-            .for_each(drop);
-        aggregation_t.p_x.set_witness(&mut pw, &p_x);
+    //     let mut pw = PartialWitness::new();
+    //     aggregation_t
+    //         .proofs
+    //         .iter()
+    //         .zip(proofs)
+    //         .map(|(p_t, p)| pw.set_proof_with_pis_target(&p_t, &p))
+    //         .for_each(drop);
+    //     aggregation_t.p.set_witness(&mut pw, &p);
+    //     aggregation_t
+    //         .bits
+    //         .iter()
+    //         .zip(bits)
+    //         .map(|(b_t, b)| pw.set_bool_target(*b_t, b))
+    //         .for_each(drop);
+    //     aggregation_t.p_x.set_witness(&mut pw, &p_x);
 
-        println!("Start aggregation proof");
-        let now = Instant::now();
-        let _proof = data.prove(pw).unwrap();
-        println!("Aggregation took {} secs", now.elapsed().as_secs());
-    }
+    //     println!("Start aggregation proof");
+    //     let now = Instant::now();
+    //     let _proof = data.prove(pw).unwrap();
+    //     println!("Aggregation took {} secs", now.elapsed().as_secs());
+    // }
 
     #[test]
     fn test_recursive_g2_aggregation() {
         let mut rng = rand::thread_rng();
         let p = G2Affine::rand(&mut rng);
-        let x = Fr::from(20);
+        let x = Fr::rand(&mut rng);
         let p_x = (p * x).into();
-        let x_biguint: BigUint = x.into();
-        let bits = biguint_to_bits(&x_biguint);
 
-        let num_statements = get_num_statements(bits.len(), NUM_BITS);
+        let num_statements = get_num_statements(256, NUM_BITS);
         let (inner_data, statement_t) = build_g2_exp_circuit();
         let (data, aggregation_t) = build_g2_exp_aggregation_circuit(&inner_data, num_statements);
 
         // witness generation
-        let statements_witness = generate_witness(p, bits.clone(), NUM_BITS);
+        let statements_witness = generate_witness_from_x(p, x, NUM_BITS);
         let proofs: Vec<_> = statements_witness
             .par_iter()
             .map(|sw| generate_g2_exp_proof(&inner_data, &statement_t, sw).unwrap())
             .collect();
 
         // set witness
-        let aggregation_witness = G2ExpAggregationWitness {
-            proofs,
-            p,
-            p_x,
-            bits: bits.clone(),
-        };
+        let aggregation_witness = G2ExpAggregationWitness { proofs, p, p_x, x };
+
+        // generate aggregation proof
         let proof =
             generate_g2_exp_aggregation_proof(&data, &aggregation_t, &aggregation_witness).unwrap();
 
@@ -508,6 +500,7 @@ mod tests {
         pw.set_proof_with_pis_target(&proof_t, &proof);
         pi.p.set_witness(&mut pw, &p);
         pi.p_x.set_witness(&mut pw, &p_x);
+        pi.x.set_witness(&mut pw, &x);
 
         let data = builder.build::<C>();
         let _proof = data.prove(pw).unwrap();
