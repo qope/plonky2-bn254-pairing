@@ -303,6 +303,9 @@ pub fn build_fq12_exp_aggregation_circuit(
         x,
     };
 
+    // register public inputs
+    builder.register_public_inputs(&target.to_vec());
+
     let data = builder.build();
 
     (data, target)
@@ -340,7 +343,7 @@ mod tests {
     use num_bigint::BigUint;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
-        iop::witness::{PartialWitness, WitnessWrite},
+        iop::witness::{PartialWitness},
         plonk::{
             circuit_builder::CircuitBuilder, circuit_data::CircuitConfig,
             config::PoseidonGoldilocksConfig,
@@ -351,8 +354,7 @@ mod tests {
 
     use super::{
         build_fq12_exp_aggregation_circuit, build_fq12_exp_circuit,
-        generate_fq12_exp_aggregation_proof, verify_partial_fq12_exp_statement,
-        Fq12ExpAggregationTarget, Fq12ExpAggregationWitness, PartialFq12ExpStatement,
+        generate_fq12_exp_aggregation_proof, verify_partial_fq12_exp_statement, Fq12ExpAggregationWitness, PartialFq12ExpStatement,
     };
     use crate::{
         aggregation::{
@@ -368,6 +370,7 @@ mod tests {
         fields::fq12_target::Fq12Target,
         traits::recursive_circuit_target::RecursiveCircuitTarget,
     };
+    use crate::aggregation::fq12_exp::Fq12ExpAggregationTarget;
 
     type F = GoldilocksField;
     const D: usize = 2;
@@ -438,68 +441,7 @@ mod tests {
         let _proof = generate_fq12_exp_proof(&inner_data, &statement_target, &sw).unwrap();
     }
 
-    // #[test]
-    // fn test_fq12_aggregation() {
-    //     let now = Instant::now();
-    //     let (inner_data, statement_t) = build_fq12_exp_circuit();
-    //     let mut rng = rand::thread_rng();
-    //     let p = Fq12::rand(&mut rng);
-    //     // let x = Fr::rand(&mut rng);
-    //     let x = -Fr::from(1);
-    //     let x_biguint: BigUint = x.into();
-    //     let bits = biguint_to_bits(&x_biguint);
-
-    //     let statements_witness = generate_witness(p, bits.clone(), NUM_BITS);
-
-    //     let p_x = p.pow(&x_biguint.to_u64_digits());
-    //     assert_eq!(statements_witness.last().unwrap().end, p_x);
-    //     println!(
-    //         "Step circuit construction took {} secs",
-    //         now.elapsed().as_secs()
-    //     );
-
-    //     println!("Start of proof generation");
-    //     let now = Instant::now();
-    //     let proofs: Vec<_> = statements_witness
-    //         .par_iter()
-    //         .map(|sw| generate_fq12_exp_proof(&inner_data, &statement_t, sw).unwrap())
-    //         .collect();
-    //     println!(
-    //         "{} proofs generation took: {} secs",
-    //         proofs.len(),
-    //         now.elapsed().as_secs()
-    //     );
-
-    //     let now = Instant::now();
-    //     let (data, aggregation_t) =
-    //         build_fq12_exp_aggregation_circuit(&inner_data, statements_witness.len());
-    //     println!(
-    //         "Aggregation circuit construction took {} secs",
-    //         now.elapsed().as_secs()
-    //     );
-
-    //     let mut pw = PartialWitness::new();
-    //     aggregation_t
-    //         .proofs
-    //         .iter()
-    //         .zip(proofs)
-    //         .map(|(p_t, p)| pw.set_proof_with_pis_target(&p_t, &p))
-    //         .for_each(drop);
-    //     aggregation_t.p.set_witness(&mut pw, &p);
-    //     aggregation_t
-    //         .bits
-    //         .iter()
-    //         .zip(bits)
-    //         .map(|(b_t, b)| pw.set_bool_target(*b_t, b))
-    //         .for_each(drop);
-    //     aggregation_t.p_x.set_witness(&mut pw, &p_x);
-
-    //     println!("Start aggregation proof");
-    //     let now = Instant::now();
-    //     let _proof = data.prove(pw).unwrap();
-    //     println!("Aggregation took {} secs", now.elapsed().as_secs());
-    // }
-
+    
     #[test]
     fn test_recursive_fq12_aggregation() {
         let mut rng = rand::thread_rng();
@@ -545,6 +487,7 @@ mod tests {
         let pi = Fq12ExpAggregationTarget::from_vec(&mut builder, &proof_t.public_inputs);
         builder.verify_proof::<C>(&proof_t, &verifier_target, &data.common);
 
+        use plonky2::iop::witness::WitnessWrite;
         let mut pw = PartialWitness::new();
         pw.set_proof_with_pis_target(&proof_t, &proof);
         pi.p.set_witness(&mut pw, &p);

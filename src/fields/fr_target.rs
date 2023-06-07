@@ -225,7 +225,6 @@ mod tests {
     use super::FrTarget;
 
     type F = GoldilocksField;
-    type C = PoseidonGoldilocksConfig;
     const D: usize = 2;
 
     #[test]
