@@ -455,6 +455,7 @@ mod tests {
         let (data, aggregation_t) = build_fq12_exp_aggregation_circuit(&inner_data, num_statements);
 
         // witness generation
+        println!("Start generating proofs");
         let now = Instant::now();
         let statements_witness = generate_fq12_exp_witness_from_x(p, x, NUM_BITS);
         let proofs: Vec<_> = statements_witness
