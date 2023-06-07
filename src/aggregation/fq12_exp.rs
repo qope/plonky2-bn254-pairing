@@ -343,7 +343,7 @@ mod tests {
     use num_bigint::BigUint;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
-        iop::witness::{PartialWitness},
+        iop::witness::{PartialWitness, WitnessWrite},
         plonk::{
             circuit_builder::CircuitBuilder, circuit_data::CircuitConfig,
             config::PoseidonGoldilocksConfig,
@@ -354,23 +354,23 @@ mod tests {
 
     use super::{
         build_fq12_exp_aggregation_circuit, build_fq12_exp_circuit,
-        generate_fq12_exp_aggregation_proof, verify_partial_fq12_exp_statement, Fq12ExpAggregationWitness, PartialFq12ExpStatement,
+        generate_fq12_exp_aggregation_proof, verify_partial_fq12_exp_statement,
+        Fq12ExpAggregationWitness, PartialFq12ExpStatement,
     };
+    use crate::aggregation::fq12_exp::Fq12ExpAggregationTarget;
     use crate::{
         aggregation::{
-            fq12_exp::{biguint_to_bits, generate_fq12_exp_proof, NUM_BITS},
+            fq12_exp::{generate_fq12_exp_proof, NUM_BITS},
             fq12_exp_witness::{
-                generate_fq12_exp_witness_from_x, generate_witness, partial_exp_statement_witness,
+                generate_fq12_exp_witness_from_x, partial_exp_statement_witness,
                 PartialExpStatementWitness, PartialExpStatementWitnessInput,
                 PartialExpStatementWitnessOutput,
             },
-            g2_exp::G2ExpAggregationTarget,
             g2_exp_witness::get_num_statements,
         },
         fields::fq12_target::Fq12Target,
         traits::recursive_circuit_target::RecursiveCircuitTarget,
     };
-    use crate::aggregation::fq12_exp::Fq12ExpAggregationTarget;
 
     type F = GoldilocksField;
     const D: usize = 2;
@@ -441,7 +441,6 @@ mod tests {
         let _proof = generate_fq12_exp_proof(&inner_data, &statement_target, &sw).unwrap();
     }
 
-    
     #[test]
     fn test_recursive_fq12_aggregation() {
         let mut rng = rand::thread_rng();
@@ -488,7 +487,6 @@ mod tests {
         let pi = Fq12ExpAggregationTarget::from_vec(&mut builder, &proof_t.public_inputs);
         builder.verify_proof::<C>(&proof_t, &verifier_target, &data.common);
 
-        use plonky2::iop::witness::WitnessWrite;
         let mut pw = PartialWitness::new();
         pw.set_proof_with_pis_target(&proof_t, &proof);
         pi.p.set_witness(&mut pw, &p);
