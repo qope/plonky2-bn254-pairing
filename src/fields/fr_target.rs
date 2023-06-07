@@ -218,7 +218,6 @@ mod tests {
         field::goldilocks_field::GoldilocksField,
         plonk::{
             circuit_builder::CircuitBuilder, circuit_data::CircuitConfig,
-            config::PoseidonGoldilocksConfig,
         },
     };
 
