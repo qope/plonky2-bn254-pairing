@@ -5,7 +5,7 @@ use itertools::Itertools;
 use num_bigint::BigUint;
 use num_traits::One;
 use plonky2::{
-    field::{extension::Extendable, goldilocks_field::GoldilocksField},
+    field::extension::Extendable,
     hash::hash_types::RichField,
     iop::{
         target::{BoolTarget, Target},
@@ -14,7 +14,7 @@ use plonky2::{
     plonk::{
         circuit_builder::CircuitBuilder,
         circuit_data::{CircuitConfig, CircuitData},
-        config::PoseidonGoldilocksConfig,
+        config::{AlgebraicHasher, GenericConfig},
         proof::{ProofWithPublicInputs, ProofWithPublicInputsTarget},
     },
 };
@@ -124,13 +124,13 @@ impl<F: RichField + Extendable<D>, const D: usize>
     }
 }
 
-pub fn build_fq12_exp_circuit() -> (
-    CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    PartialFq12ExpStatement<GoldilocksField, 2>,
-) {
-    const D: usize = 2;
+pub fn build_fq12_exp_circuit<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+>() -> (CircuitData<F, C, D>, PartialFq12ExpStatement<F, D>) {
     let config = CircuitConfig::standard_ecc_config();
-    let mut builder = CircuitBuilder::<GoldilocksField, D>::new(config);
+    let mut builder = CircuitBuilder::<F, D>::new(config);
     let bits_t = (0..NUM_BITS)
         .map(|_| builder.add_virtual_bool_target_safe())
         .collect_vec();
@@ -146,48 +146,58 @@ pub fn build_fq12_exp_circuit() -> (
     // register public input
     let pi_vec = statement_t.to_vec();
     builder.register_public_inputs(&pi_vec);
-    let data = builder.build::<PoseidonGoldilocksConfig>();
+    let data = builder.build::<C>();
     (data, statement_t)
 }
 
-pub fn generate_fq12_exp_proof(
-    inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    statement_t: &PartialFq12ExpStatement<GoldilocksField, 2>,
+pub fn generate_fq12_exp_proof<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+>(
+    inner_data: &CircuitData<F, C, D>,
+    statement_t: &PartialFq12ExpStatement<F, D>,
     statement_witness: &PartialExpStatementWitness,
-) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>> {
-    let mut pw = PartialWitness::<GoldilocksField>::new();
+) -> Result<ProofWithPublicInputs<F, C, D>> {
+    let mut pw = PartialWitness::<F>::new();
     statement_t.set_witness(&mut pw, statement_witness);
     let proof = inner_data.prove(pw);
     proof
 }
 
-pub struct Fq12ExpAggregationTarget {
-    pub proofs: Vec<ProofWithPublicInputsTarget<2>>,
-    pub p: Fq12Target<GoldilocksField, 2>,
-    pub p_x: Fq12Target<GoldilocksField, 2>,
-    pub x: FrTarget<GoldilocksField, 2>,
+pub struct Fq12ExpAggregationTarget<F: RichField + Extendable<D>, const D: usize> {
+    pub proofs: Vec<ProofWithPublicInputsTarget<D>>,
+    pub p: Fq12Target<F, D>,
+    pub p_x: Fq12Target<F, D>,
+    pub x: FrTarget<F, D>,
 }
 
-pub struct Fq12ExpAggregationWitness {
-    pub proofs: Vec<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>>,
+pub struct Fq12ExpAggregationWitness<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+> {
+    pub proofs: Vec<ProofWithPublicInputs<F, C, D>>,
     pub p: Fq12,
     pub p_x: Fq12,
     pub x: Fr,
 }
 
-pub struct Fq12ExpAggregationPublicInputs {
-    pub p: Fq12Target<GoldilocksField, 2>,
-    pub p_x: Fq12Target<GoldilocksField, 2>,
-    pub x: FrTarget<GoldilocksField, 2>,
+pub struct Fq12ExpAggregationPublicInputs<F: RichField + Extendable<D>, const D: usize> {
+    pub p: Fq12Target<F, D>,
+    pub p_x: Fq12Target<F, D>,
+    pub x: FrTarget<F, D>,
 }
 
-impl
+impl<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>, const D: usize>
     RecursiveCircuitTarget<
-        GoldilocksField,
-        2,
-        Fq12ExpAggregationPublicInputs,
-        Fq12ExpAggregationWitness,
-    > for Fq12ExpAggregationTarget
+        F,
+        D,
+        Fq12ExpAggregationPublicInputs<F, D>,
+        Fq12ExpAggregationWitness<F, C, D>,
+    > for Fq12ExpAggregationTarget<F, D>
+where
+    <C as GenericConfig<D>>::Hasher: AlgebraicHasher<F>,
 {
     fn to_vec(&self) -> Vec<Target> {
         self.p
@@ -200,12 +210,12 @@ impl
     }
 
     fn from_vec(
-        builder: &mut CircuitBuilder<GoldilocksField, 2>,
+        builder: &mut CircuitBuilder<F, D>,
         input: &[Target],
-    ) -> Fq12ExpAggregationPublicInputs {
-        let num_lims = FqTarget::<GoldilocksField, 2>::num_max_limbs();
+    ) -> Fq12ExpAggregationPublicInputs<F, D> {
+        let num_lims = FqTarget::<F, D>::num_max_limbs();
         let num_fq12_lims = 12 * num_lims;
-        let num_fr_limbs = FrTarget::<GoldilocksField, 2>::num_max_limbs();
+        let num_fr_limbs = FrTarget::<F, D>::num_max_limbs();
         let mut input = input.to_vec();
         let p_raw = input.drain(0..num_fq12_lims).collect_vec();
         let p_x_raw = input.drain(0..num_fq12_lims).collect_vec();
@@ -218,11 +228,7 @@ impl
         Fq12ExpAggregationPublicInputs { p, p_x, x }
     }
 
-    fn set_witness(
-        &self,
-        pw: &mut PartialWitness<GoldilocksField>,
-        value: &Fq12ExpAggregationWitness,
-    ) {
+    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &Fq12ExpAggregationWitness<F, C, D>) {
         self.proofs
             .iter()
             .zip(value.proofs.iter())
@@ -235,26 +241,26 @@ impl
     }
 }
 
-pub fn build_fq12_exp_aggregation_circuit(
-    inner_data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
+pub fn build_fq12_exp_aggregation_circuit<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+>(
+    inner_data: &CircuitData<F, C, D>,
     num_proofs: usize,
-) -> (
-    CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    Fq12ExpAggregationTarget,
-) {
+) -> (CircuitData<F, C, D>, Fq12ExpAggregationTarget<F, D>)
+where
+    <C as GenericConfig<D>>::Hasher: AlgebraicHasher<F>,
+{
     let config = CircuitConfig::standard_ecc_config();
-    let mut builder = CircuitBuilder::<GoldilocksField, 2>::new(config);
+    let mut builder = CircuitBuilder::<F, D>::new(config);
     let verifier_circuit_target = builder.constant_verifier_data(&inner_data.verifier_only);
 
     let mut proofs_t = vec![];
     let mut statements = vec![];
     for _ in 0..num_proofs {
         let proof_t = builder.add_virtual_proof_with_pis(&inner_data.common);
-        builder.verify_proof::<PoseidonGoldilocksConfig>(
-            &proof_t,
-            &verifier_circuit_target,
-            &inner_data.common,
-        );
+        builder.verify_proof::<C>(&proof_t, &verifier_circuit_target, &inner_data.common);
         let pi_vec = proof_t.public_inputs.clone();
         let statement = PartialFq12ExpStatement::from_vec(&mut builder, &pi_vec);
         proofs_t.push(proof_t);
@@ -296,7 +302,7 @@ pub fn build_fq12_exp_aggregation_circuit(
         builder.connect(bits[i].target, false_t.target);
     }
 
-    let target = Fq12ExpAggregationTarget {
+    let target = Fq12ExpAggregationTarget::<F, D> {
         proofs: proofs_t,
         p,
         p_x,
@@ -304,7 +310,13 @@ pub fn build_fq12_exp_aggregation_circuit(
     };
 
     // register public inputs
-    builder.register_public_inputs(&target.to_vec());
+    let pi_vec = <Fq12ExpAggregationTarget<F, D> as RecursiveCircuitTarget<
+        F,
+        D,
+        Fq12ExpAggregationPublicInputs<F, D>,
+        Fq12ExpAggregationWitness<F, C, D>,
+    >>::to_vec(&target);
+    builder.register_public_inputs(&pi_vec);
 
     let data = builder.build();
 
@@ -321,12 +333,19 @@ pub fn biguint_to_bits(x: &BigUint) -> Vec<bool> {
     bits
 }
 
-pub fn generate_fq12_exp_aggregation_proof(
-    data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    aggregation_t: &Fq12ExpAggregationTarget,
-    aggregation_witness: &Fq12ExpAggregationWitness,
-) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>> {
-    let mut pw = PartialWitness::<GoldilocksField>::new();
+pub fn generate_fq12_exp_aggregation_proof<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+>(
+    data: &CircuitData<F, C, D>,
+    aggregation_t: &Fq12ExpAggregationTarget<F, D>,
+    aggregation_witness: &Fq12ExpAggregationWitness<F, C, D>,
+) -> Result<ProofWithPublicInputs<F, C, D>>
+where
+    <C as GenericConfig<D>>::Hasher: AlgebraicHasher<F>,
+{
+    let mut pw = PartialWitness::<F>::new();
     aggregation_t.set_witness(&mut pw, aggregation_witness);
     let proof = data.prove(pw);
     proof
@@ -357,7 +376,7 @@ mod tests {
         generate_fq12_exp_aggregation_proof, verify_partial_fq12_exp_statement,
         Fq12ExpAggregationWitness, PartialFq12ExpStatement,
     };
-    use crate::aggregation::fq12_exp::Fq12ExpAggregationTarget;
+    use crate::aggregation::fq12_exp::{Fq12ExpAggregationTarget, Fq12ExpAggregationPublicInputs};
     use crate::{
         aggregation::{
             fq12_exp::{generate_fq12_exp_proof, NUM_BITS},
@@ -419,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_gen_proof() {
-        let (inner_data, statement_target) = build_fq12_exp_circuit();
+        let (inner_data, statement_target) = build_fq12_exp_circuit::<F, C, D>();
         let mut rng = rand::thread_rng();
         // make witness
         let start = Fq12::rand(&mut rng);
@@ -450,7 +469,7 @@ mod tests {
         let p_x = p.pow(&x_biguint.to_u64_digits());
 
         let num_statements = get_num_statements(256, NUM_BITS);
-        let (inner_data, statement_t) = build_fq12_exp_circuit();
+        let (inner_data, statement_t) = build_fq12_exp_circuit::<F, C, D>();
         let (data, aggregation_t) = build_fq12_exp_aggregation_circuit(&inner_data, num_statements);
 
         // witness generation
@@ -484,7 +503,12 @@ mod tests {
 
         let verifier_target = builder.constant_verifier_data(&data.verifier_only);
         let proof_t = builder.add_virtual_proof_with_pis(&data.common);
-        let pi = Fq12ExpAggregationTarget::from_vec(&mut builder, &proof_t.public_inputs);
+        let pi = <Fq12ExpAggregationTarget<F, D> as RecursiveCircuitTarget<
+            F,
+            D,
+            Fq12ExpAggregationPublicInputs<F, D>,
+            Fq12ExpAggregationWitness<F, C, D>,
+        >>::from_vec(&mut builder, &proof_t.public_inputs);
         builder.verify_proof::<C>(&proof_t, &verifier_target, &data.common);
 
         let mut pw = PartialWitness::new();

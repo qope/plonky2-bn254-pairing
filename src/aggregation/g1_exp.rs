@@ -2,12 +2,13 @@ use anyhow::Result;
 use ark_bn254::{Fr, G1Affine};
 use itertools::Itertools;
 use plonky2::{
-    field::goldilocks_field::GoldilocksField,
+    field::extension::Extendable,
+    hash::hash_types::RichField,
     iop::{target::Target, witness::PartialWitness},
     plonk::{
         circuit_builder::CircuitBuilder,
         circuit_data::{CircuitConfig, CircuitData},
-        config::PoseidonGoldilocksConfig,
+        config::GenericConfig,
         proof::ProofWithPublicInputs,
     },
 };
@@ -18,10 +19,10 @@ use crate::{
     traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
-pub struct G1ExpTarget {
-    pub p: G1Target<GoldilocksField, 2>,
-    pub p_x: G1Target<GoldilocksField, 2>,
-    pub x: FrTarget<GoldilocksField, 2>,
+pub struct G1ExpTarget<F: RichField + Extendable<D>, const D: usize> {
+    pub p: G1Target<F, D>,
+    pub p_x: G1Target<F, D>,
+    pub x: FrTarget<F, D>,
 }
 
 pub struct G1ExpWitness {
@@ -30,7 +31,9 @@ pub struct G1ExpWitness {
     pub x: Fr,
 }
 
-impl RecursiveCircuitTarget<GoldilocksField, 2, G1ExpTarget, G1ExpWitness> for G1ExpTarget {
+impl<F: RichField + Extendable<D>, const D: usize>
+    RecursiveCircuitTarget<F, D, G1ExpTarget<F, D>, G1ExpWitness> for G1ExpTarget<F, D>
+{
     fn to_vec(&self) -> Vec<Target> {
         self.p
             .to_vec()
@@ -41,10 +44,10 @@ impl RecursiveCircuitTarget<GoldilocksField, 2, G1ExpTarget, G1ExpWitness> for G
             .collect_vec()
     }
 
-    fn from_vec(builder: &mut CircuitBuilder<GoldilocksField, 2>, input: &[Target]) -> Self {
-        let num_limbs = FqTarget::<GoldilocksField, 2>::num_max_limbs();
+    fn from_vec(builder: &mut CircuitBuilder<F, D>, input: &[Target]) -> Self {
+        let num_limbs = FqTarget::<F, D>::num_max_limbs();
         let num_g1_limbs = 2 * num_limbs;
-        let num_fr_limbs = FrTarget::<GoldilocksField, 2>::num_max_limbs();
+        let num_fr_limbs = FrTarget::<F, D>::num_max_limbs();
         let mut input = input.to_vec();
         let p_raw = input.drain(0..num_g1_limbs).collect_vec();
         let p_x_raw = input.drain(0..num_g1_limbs).collect_vec();
@@ -57,19 +60,20 @@ impl RecursiveCircuitTarget<GoldilocksField, 2, G1ExpTarget, G1ExpWitness> for G
         Self { p, p_x, x }
     }
 
-    fn set_witness(&self, pw: &mut PartialWitness<GoldilocksField>, value: &G1ExpWitness) {
+    fn set_witness(&self, pw: &mut PartialWitness<F>, value: &G1ExpWitness) {
         self.p.set_witness(pw, &value.p);
         self.p_x.set_witness(pw, &value.p_x);
         self.x.set_witness(pw, &value.x);
     }
 }
 
-pub fn build_g1_exp_circuit() -> (
-    CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    G1ExpTarget,
-) {
+pub fn build_g1_exp_circuit<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+>() -> (CircuitData<F, C, D>, G1ExpTarget<F, D>) {
     let config = CircuitConfig::standard_ecc_config();
-    let mut builder = CircuitBuilder::<GoldilocksField, 2>::new(config);
+    let mut builder = CircuitBuilder::<F, D>::new(config);
     let p = G1Target::new(&mut builder);
     let x = FrTarget::new(&mut builder);
     let p_x = p.pow_var_simple(&mut builder, &x);
@@ -80,12 +84,16 @@ pub fn build_g1_exp_circuit() -> (
     (data, target)
 }
 
-pub fn generate_g1_exp_proof(
-    data: &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>,
-    g1exp_t: &G1ExpTarget,
+pub fn generate_g1_exp_proof<
+    F: RichField + Extendable<D>,
+    C: GenericConfig<D, F = F>,
+    const D: usize,
+>(
+    data: &CircuitData<F, C, D>,
+    g1exp_t: &G1ExpTarget<F, D>,
     g1exp_witness: &G1ExpWitness,
-) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonGoldilocksConfig, 2>> {
-    let mut pw = PartialWitness::<GoldilocksField>::new();
+) -> Result<ProofWithPublicInputs<F, C, D>> {
+    let mut pw = PartialWitness::<F>::new();
     g1exp_t.set_witness(&mut pw, g1exp_witness);
     let proof = data.prove(pw);
     proof
@@ -130,7 +138,7 @@ mod tests {
             generate_g1_exp_proof(&inner_data, &g1exp_t, &G1ExpWitness { p, x, p_x }).unwrap();
         println!("proof generation took {} s", now.elapsed().as_secs());
 
-        let verifier_target = builder.constant_verifier_data(&inner_data.verifier_only);
+        let verifier_target = builder.constant_verifier_data::<C>(&inner_data.verifier_only);
         let proof_t = builder.add_virtual_proof_with_pis(&inner_data.common);
         let pi = G1ExpTarget::from_vec(&mut builder, &proof_t.public_inputs);
         builder.verify_proof::<C>(&proof_t, &verifier_target, &inner_data.common);
