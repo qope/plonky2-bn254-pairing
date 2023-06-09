@@ -39,7 +39,7 @@ pub fn get_num_statements(bits: usize, bits_per_step: usize) -> usize {
     (bits + to_padd) / bits_per_step
 }
 
-pub fn generate_witness(
+pub fn generate_g2exp_witness(
     p: G2Affine,
     bits: Vec<bool>,
     bits_per_step: usize,
@@ -81,7 +81,7 @@ pub fn generate_witness(
     statements
 }
 
-pub fn generate_witness_from_x(
+pub fn generate_g2exp_witness_from_x(
     p: G2Affine,
     x: Fr,
     bits_per_step: usize,
@@ -91,7 +91,7 @@ pub fn generate_witness_from_x(
     let to_padd = 256 - bits.len();
     bits.extend(vec![false; to_padd]);
     assert_eq!(bits.len(), 256);
-    generate_witness(p, bits, bits_per_step)
+    generate_g2exp_witness(p, bits, bits_per_step)
 }
 
 pub fn partial_exp_statement_witness(
@@ -126,7 +126,7 @@ mod tests {
 
     use crate::aggregation::{
         fq12_exp::biguint_to_bits,
-        g2_exp_witness::{gen_rando, generate_witness},
+        g2_exp_witness::{gen_rando, generate_g2exp_witness},
     };
 
     #[test]
@@ -138,7 +138,7 @@ mod tests {
         let bits = biguint_to_bits(&x_biguint);
         let expected: G2Affine = (p * Fr::from(x)).into();
 
-        let statements = generate_witness(p, bits, 4);
+        let statements = generate_g2exp_witness(p, bits, 4);
 
         let rando = gen_rando();
         let end = statements.last().unwrap().end;

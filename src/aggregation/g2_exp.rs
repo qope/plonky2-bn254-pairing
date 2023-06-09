@@ -363,7 +363,7 @@ mod tests {
                 verify_partial_g2_exp_statement, PartialG2ExpStatement, NUM_BITS,
             },
             g2_exp_witness::{
-                generate_witness_from_x, get_num_statements, partial_exp_statement_witness,
+                generate_g2exp_witness_from_x, get_num_statements, partial_exp_statement_witness,
                 PartialExpStatementWitnessInput, PartialExpStatementWitnessOutput,
             },
         },
@@ -495,7 +495,7 @@ mod tests {
         let (data, aggregation_t) = build_g2_exp_aggregation_circuit(&inner_data, num_statements);
 
         // witness generation
-        let statements_witness = generate_witness_from_x(p, x, NUM_BITS);
+        let statements_witness = generate_g2exp_witness_from_x(p, x, NUM_BITS);
         let proofs: Vec<_> = statements_witness
             .par_iter()
             .map(|sw| generate_g2_exp_proof(&inner_data, &statement_t, sw).unwrap())

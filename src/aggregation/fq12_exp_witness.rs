@@ -24,7 +24,7 @@ pub struct PartialExpStatementWitness {
     pub end_square: Fq12,
 }
 
-pub fn generate_witness(
+pub fn generate_fq12exp_witness(
     p: Fq12,
     bits: Vec<bool>,
     bits_per_step: usize,
@@ -66,7 +66,7 @@ pub fn generate_witness(
     statements
 }
 
-pub fn generate_fq12_exp_witness_from_x(
+pub fn generate_fq12exp_witness_from_x(
     p: Fq12,
     x: Fr,
     bits_per_step: usize,
@@ -76,7 +76,7 @@ pub fn generate_fq12_exp_witness_from_x(
     let to_padd = 256 - bits.len();
     bits.extend(vec![false; to_padd]);
     assert_eq!(bits.len(), 256);
-    generate_witness(p, bits, bits_per_step)
+    generate_fq12exp_witness(p, bits, bits_per_step)
 }
 
 pub fn partial_exp_statement_witness(
@@ -106,7 +106,9 @@ mod tests {
     use num_bigint::BigUint;
     use rand::Rng;
 
-    use crate::aggregation::{fq12_exp::biguint_to_bits, fq12_exp_witness::generate_witness};
+    use crate::aggregation::{
+        fq12_exp::biguint_to_bits, fq12_exp_witness::generate_fq12exp_witness,
+    };
 
     #[test]
     fn test_generate_witness() {
@@ -117,7 +119,7 @@ mod tests {
         let bits = biguint_to_bits(&x_biguint);
         let result = p.pow(&x_biguint.to_u64_digits());
 
-        let statements = generate_witness(p, bits, 4);
+        let statements = generate_fq12exp_witness(p, bits, 4);
         let end = statements.last().unwrap().end;
 
         assert_eq!(end, result);

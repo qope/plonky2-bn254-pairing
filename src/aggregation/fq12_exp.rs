@@ -376,12 +376,12 @@ mod tests {
         generate_fq12_exp_aggregation_proof, verify_partial_fq12_exp_statement,
         Fq12ExpAggregationWitness, PartialFq12ExpStatement,
     };
-    use crate::aggregation::fq12_exp::{Fq12ExpAggregationTarget, Fq12ExpAggregationPublicInputs};
+    use crate::aggregation::fq12_exp::{Fq12ExpAggregationPublicInputs, Fq12ExpAggregationTarget};
     use crate::{
         aggregation::{
             fq12_exp::{generate_fq12_exp_proof, NUM_BITS},
             fq12_exp_witness::{
-                generate_fq12_exp_witness_from_x, partial_exp_statement_witness,
+                generate_fq12exp_witness_from_x, partial_exp_statement_witness,
                 PartialExpStatementWitness, PartialExpStatementWitnessInput,
                 PartialExpStatementWitnessOutput,
             },
@@ -475,7 +475,7 @@ mod tests {
         // witness generation
         println!("Start generating proofs");
         let now = Instant::now();
-        let statements_witness = generate_fq12_exp_witness_from_x(p, x, NUM_BITS);
+        let statements_witness = generate_fq12exp_witness_from_x(p, x, NUM_BITS);
         let proofs: Vec<_> = statements_witness
             .par_iter()
             .map(|sw| generate_fq12_exp_proof(&inner_data, &statement_t, sw).unwrap())
