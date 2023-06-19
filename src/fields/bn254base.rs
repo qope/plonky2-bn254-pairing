@@ -339,6 +339,7 @@ mod tests {
 
     #[test]
     fn test_mul_base_circuit() -> Result<()> {
+        init_logger();
         const D: usize = 2;
         type C = PoseidonGoldilocksConfig;
         type F = <C as GenericConfig<D>>::F;
