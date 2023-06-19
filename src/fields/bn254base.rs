@@ -271,6 +271,14 @@ mod tests {
         },
     };
     use plonky2_ecdsa::gadgets::nonnative::CircuitBuilderNonNative;
+    use plonky2::plonk::prover::prove;
+    use plonky2::util::timing::TimingTree;
+    use log::Level;
+    use env_logger::{try_init_from_env, Env, DEFAULT_FILTER_ENV};
+
+    fn init_logger() {
+        let _ = try_init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"));
+    }
 
     use super::Bn254Base;
     #[test]
@@ -352,8 +360,16 @@ mod tests {
             builder.connect_nonnative(&z, &expected_z);
         }
 
+        let num_gates = builder.num_gates();
+
+        let mut timing = TimingTree::new("prove", Level::Debug);
         let data = builder.build::<C>();
-        let proof = data.prove(pw).unwrap();
+        let proof = prove::<F, C, D>(&data.prover_only, &data.common, pw, &mut timing)?;
+        timing.print();
+        println!(
+            "100 base field muls: num_gates: {}, degree: {}, ",
+            num_gates, data.common.degree()
+        );
 
         data.verify(proof)?;
 
