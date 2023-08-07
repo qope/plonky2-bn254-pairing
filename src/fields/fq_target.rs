@@ -6,13 +6,14 @@ use plonky2::{
     field::extension::Extendable,
     hash::hash_types::RichField,
     iop::{
+        generator::{GeneratedValues, SimpleGenerator},
         target::{BoolTarget, Target},
-        witness::PartialWitness,
+        witness::{PartialWitness, PartitionWitness, Witness},
     },
     plonk::circuit_builder::CircuitBuilder,
 };
 use plonky2_ecdsa::gadgets::{
-    biguint::BigUintTarget,
+    biguint::{BigUintTarget, GeneratedValuesBigUint, WitnessBigUint},
     nonnative::{CircuitBuilderNonNative, NonNativeTarget},
 };
 use plonky2_u32::{
@@ -22,7 +23,11 @@ use plonky2_u32::{
 use std::marker::PhantomData;
 
 use crate::{
-    fields::bn254base::Bn254Base, pairing::final_exp_native::get_naf,
+    fields::{
+        bn254base::Bn254Base,
+        native::{from_biguint_to_fq, sgn0_fq},
+    },
+    pairing::final_exp_native::get_naf,
     traits::recursive_circuit_target::RecursiveCircuitTarget,
 };
 
@@ -175,6 +180,27 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         bits[0]
     }
 
+    // if self is not square, this fails
+    // the return value is ensured to be sgn0(x) = sgn0(sgn)
+    pub fn sqrt_with_sgn(&self, builder: &mut CircuitBuilder<F, D>, sgn: BoolTarget) -> Self {
+        let sqrt = Self::new(builder);
+        builder.add_simple_generator(FqSqrtGenerator::<F, D> {
+            x: self.clone(),
+            sgn: sgn.clone(),
+            sqrt: sqrt.clone(),
+        });
+
+        // sqrt^2 = x
+        let sqrt_sq = sqrt.mul(builder, &sqrt);
+        Self::connect(builder, &sqrt_sq, self);
+
+        // sgn0(sqrt) = sgn0(sgn)
+        let sgn0_sqrt = sqrt.sgn0(builder);
+        builder.connect(sgn0_sqrt.target, sgn.target);
+
+        sqrt
+    }
+
     // TODO! have to consider self = zero case
     pub fn pow(&self, builder: &mut CircuitBuilder<F, D>, exp: Vec<u64>) -> Self {
         let a = self.clone();
@@ -254,6 +280,36 @@ impl<F: RichField + Extendable<D>, const D: usize> RecursiveCircuitTarget<F, D, 
     }
 }
 
+#[derive(Debug)]
+struct FqSqrtGenerator<F: RichField + Extendable<D>, const D: usize> {
+    x: FqTarget<F, D>,
+    sgn: BoolTarget,
+    sqrt: FqTarget<F, D>,
+}
+
+impl<F: RichField + Extendable<D>, const D: usize> SimpleGenerator<F> for FqSqrtGenerator<F, D> {
+    fn dependencies(&self) -> Vec<Target> {
+        let mut x_vec = self.x.target.value.limbs.iter().map(|&l| l.0).collect_vec();
+        x_vec.push(self.sgn.target);
+        x_vec
+    }
+
+    fn run_once(&self, witness: &PartitionWitness<F>, out_buffer: &mut GeneratedValues<F>) {
+        use ark_ff::Field as ArkField;
+        let x = from_biguint_to_fq(witness.get_biguint_target(self.x.target.value.clone()));
+        let sgn_val = witness.get_target(self.sgn.target);
+        let mut sqrt_x: Fq = x.sqrt().unwrap();
+        let desired_sgn = sgn_val.to_canonical_u64() % 2 == 1;
+        let sng0_x = sgn0_fq(sqrt_x);
+        if sng0_x != desired_sgn {
+            sqrt_x = -sqrt_x;
+        }
+        assert_eq!(sgn0_fq(sqrt_x), desired_sgn);
+        let sqrt_x_biguint: BigUint = sqrt_x.into();
+        out_buffer.set_biguint_target(&self.sqrt.target.value, &sqrt_x_biguint);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fq;
@@ -269,7 +325,9 @@ mod tests {
             config::PoseidonGoldilocksConfig,
         },
     };
+    use rand::Rng;
 
+    use crate::fields::native::sgn0_fq;
     use crate::traits::recursive_circuit_target::RecursiveCircuitTarget;
 
     use super::FqTarget;
@@ -403,5 +461,37 @@ mod tests {
         let data = builder.build::<C>();
         let _proof = data.prove(pw);
         dbg!(data.common.degree_bits());
+    }
+
+    #[test]
+    fn test_sqrt_with_sgn() {
+        let rng = &mut rand::thread_rng();
+        let a: Fq = {
+            // resample a until it is a square
+            let mut a = Fq::rand(rng);
+            while !a.legendre().is_qr() {
+                a = Fq::rand(rng);
+            }
+            a
+        };
+        assert!(a.legendre().is_qr());
+        let sgn: bool = rng.gen();
+        let sqrt = a.sqrt().unwrap();
+        let expected_sqrt = if sgn == sgn0_fq(sqrt) { sqrt } else { -sqrt };
+        assert_eq!(expected_sqrt * expected_sqrt, a);
+        assert_eq!(sgn0_fq(expected_sqrt), sgn);
+
+        let config = CircuitConfig::standard_ecc_config();
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let a_t = FqTarget::constant(&mut builder, a);
+        let sgn_t = builder.constant_bool(sgn);
+        let sqrt_t = a_t.sqrt_with_sgn(&mut builder, sgn_t);
+        let expected_sqrt_t = FqTarget::constant(&mut builder, expected_sqrt);
+
+        FqTarget::connect(&mut builder, &sqrt_t, &expected_sqrt_t);
+
+        let pw = PartialWitness::new();
+        let data = builder.build::<C>();
+        let _proof = data.prove(pw);
     }
 }
