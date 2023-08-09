@@ -44,6 +44,18 @@ impl<F: RichField + Extendable<D>, const D: usize> FrTarget<F, D> {
         self.target.clone()
     }
 
+    pub fn from_targets(builder: &mut CircuitBuilder<F, D>, targets: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Scalar>();
+        assert_eq!(targets.len(), num_limbs);
+        let limbs = targets.iter().cloned().map(|a| U32Target(a)).collect_vec();
+        let biguint = BigUintTarget { limbs };
+        let target = builder.reduce(&biguint);
+        Self {
+            target,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn limbs(&self) -> Vec<U32Target> {
         self.target.value.limbs.iter().cloned().collect_vec()
     }
@@ -216,9 +228,7 @@ mod tests {
     use num_traits::*;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
-        plonk::{
-            circuit_builder::CircuitBuilder, circuit_data::CircuitConfig,
-        },
+        plonk::{circuit_builder::CircuitBuilder, circuit_data::CircuitConfig},
     };
 
     use super::FrTarget;

@@ -50,6 +50,18 @@ impl<F: RichField + Extendable<D>, const D: usize> FqTarget<F, D> {
         self.target.clone()
     }
 
+    pub fn from_targets(builder: &mut CircuitBuilder<F, D>, targets: &[Target]) -> Self {
+        let num_limbs = CircuitBuilder::<F, D>::num_nonnative_limbs::<Bn254Base>();
+        assert_eq!(targets.len(), num_limbs);
+        let limbs = targets.iter().cloned().map(|a| U32Target(a)).collect_vec();
+        let biguint = BigUintTarget { limbs };
+        let target = builder.reduce(&biguint);
+        Self {
+            target,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn limbs(&self) -> Vec<U32Target> {
         self.target.value.limbs.iter().cloned().collect_vec()
     }
