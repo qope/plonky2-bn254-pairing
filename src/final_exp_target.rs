@@ -164,7 +164,7 @@ fn easy_part<F: RichField + Extendable<D>, const D: usize>(
     f
 }
 
-pub fn final_exp<
+pub fn final_exp_circuit<
     F: RichField + Extendable<D>,
     C: GenericConfig<D, F = F> + 'static,
     const D: usize,
@@ -201,7 +201,7 @@ mod tests {
     use crate::miller_loop_native::miller_loop_native;
     use crate::{
         final_exp_native::{final_exp_native, frobenius_map_native},
-        final_exp_target::final_exp,
+        final_exp_target::final_exp_circuit,
     };
     use plonky2_bn254::fields::fq12_target::Fq12Target;
 
@@ -240,7 +240,7 @@ mod tests {
         let config = CircuitConfig::standard_ecc_config();
         let mut builder = CircuitBuilder::<F, D>::new(config);
         let input_t = Fq12Target::constant(&mut builder, input.into());
-        let output = final_exp::<F, C, D>(&mut builder, input_t);
+        let output = final_exp_circuit::<F, C, D>(&mut builder, input_t);
         let output_expected = final_exp_native(input);
 
         let output_expected_t = Fq12Target::constant(&mut builder, output_expected.into());
