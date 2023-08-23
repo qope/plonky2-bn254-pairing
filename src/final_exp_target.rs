@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 use ark_bn254::{Fq, Fq2};
 use ark_ff::{Field, One, Zero};
-use itertools::Itertools;
 use num_bigint::BigUint;
 
 use plonky2::{
@@ -9,9 +8,9 @@ use plonky2::{
     plonk::circuit_builder::CircuitBuilder,
 };
 
-use crate::fields::{fq12_target::Fq12Target, fq2_target::Fq2Target};
+use plonky2_bn254::fields::{fq12_target::Fq12Target, fq2_target::Fq2Target};
 
-use crate::pairing::final_exp_native::{frob_coeffs, get_naf, BN_X};
+use crate::final_exp_native::{frob_coeffs, get_naf, BN_X};
 
 pub fn frobenius_map<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
@@ -51,7 +50,7 @@ pub fn frobenius_map<F: RichField + Extendable<D>, const D: usize>(
         .iter()
         .map(|x| x.coeffs[0].clone())
         .chain(out_fp2.iter().map(|x| x.coeffs[1].clone()))
-        .collect_vec();
+        .collect::<Vec<_>>();
 
     Fq12Target {
         coeffs: out_coeffs.try_into().unwrap(),
@@ -192,12 +191,13 @@ mod tests {
         },
     };
 
-    use crate::pairing::miller_loop_native::miller_loop as miller_loop_native;
-    use crate::pairing::{
+    use crate::final_exp_target::frobenius_map;
+    use crate::miller_loop_native::miller_loop as miller_loop_native;
+    use crate::{
         final_exp_native::{final_exp as final_exp_native, frobenius_map as frobenius_map_native},
         final_exp_target::final_exp,
     };
-    use crate::{fields::fq12_target::Fq12Target, pairing::final_exp_target::frobenius_map};
+    use plonky2_bn254::fields::fq12_target::Fq12Target;
 
     type F = GoldilocksField;
     type C = PoseidonGoldilocksConfig;

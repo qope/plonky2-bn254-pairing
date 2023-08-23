@@ -5,7 +5,7 @@ use ark_ff::{Field, Fp2};
 use ark_std::{One, Zero};
 use num_bigint::BigUint;
 
-use crate::fields::native::MyFq12;
+use plonky2_bn254::fields::native::MyFq12;
 
 pub fn sparse_line_function_unequal(Q: (&G2Affine, &G2Affine), P: &G1Affine) -> Vec<Option<Fq2>> {
     let (x_1, y_1) = (&Q.0.x, &Q.0.y);

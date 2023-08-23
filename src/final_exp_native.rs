@@ -8,9 +8,9 @@ use itertools::Itertools;
 use num_bigint::BigUint;
 use num_traits::One;
 
-use crate::fields::native::MyFq12;
+use plonky2_bn254::fields::native::MyFq12;
 
-use crate::pairing::miller_loop_native::conjugate_fp2;
+use crate::miller_loop_native::conjugate_fp2;
 
 pub const BN_X: u64 = 4965661367192848881;
 
@@ -220,10 +220,8 @@ mod tests {
     use ark_bn254::{Fr, G1Affine, G2Affine};
     use ark_ec::AffineRepr;
 
-    use crate::{
-        fields::debug_tools::print_ark_fq,
-        pairing::miller_loop_native::{miller_loop, multi_miller_loop},
-    };
+    use crate::miller_loop_native::{miller_loop, multi_miller_loop};
+    use plonky2_bn254::fields::debug_tools::print_ark_fq;
 
     use super::final_exp;
 

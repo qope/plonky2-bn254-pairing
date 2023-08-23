@@ -1,8 +1,5 @@
 #![allow(non_snake_case)]
-use crate::curves::{g1curve_target::G1Target, g2curve_target::G2Target};
-use crate::fields::fq12_target::Fq12Target;
-use crate::fields::{debug_tools::print_fq_target, fq2_target::Fq2Target, fq_target::FqTarget};
-use crate::pairing::miller_loop_native::SIX_U_PLUS_2_NAF;
+use crate::miller_loop_native::SIX_U_PLUS_2_NAF;
 use ark_bn254::{Fq, Fq2};
 use ark_ff::Field;
 use ark_std::One;
@@ -10,6 +7,11 @@ use num_bigint::BigUint;
 use plonky2::{
     field::extension::Extendable, hash::hash_types::RichField,
     plonk::circuit_builder::CircuitBuilder,
+};
+use plonky2_bn254::curves::{g1curve_target::G1Target, g2curve_target::G2Target};
+use plonky2_bn254::fields::fq12_target::Fq12Target;
+use plonky2_bn254::fields::{
+    debug_tools::print_fq_target, fq2_target::Fq2Target, fq_target::FqTarget,
 };
 
 const XI_0: usize = 9;
@@ -322,7 +324,7 @@ pub fn twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
     let frob_y = Q.y.conjugate(builder);
     let out_x = c2.mul(builder, &frob_x);
     let out_y = c3.mul(builder, &frob_y);
-    G2Target::construct(out_x, out_y)
+    G2Target::new(out_x, out_y)
 }
 
 pub fn neg_twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
@@ -335,7 +337,7 @@ pub fn neg_twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
     let neg_frob_y = Q.y.neg_conjugate(builder);
     let out_x = c2.mul(builder, &frob_x);
     let out_y = c3.mul(builder, &neg_frob_y);
-    G2Target::construct(out_x, out_y)
+    G2Target::new(out_x, out_y)
 }
 
 pub fn miller_loop<F: RichField + Extendable<D>, const D: usize>(
@@ -367,13 +369,13 @@ mod tests {
     };
 
     use super::miller_loop;
-    use crate::pairing::{
+    use crate::{
         miller_loop_native::{
             miller_loop as miller_loop_native, multi_miller_loop as multi_miller_loop_native,
         },
         miller_loop_target::multi_miller_loop,
     };
-    use crate::{
+    use plonky2_bn254::{
         curves::{g1curve_target::G1Target, g2curve_target::G2Target},
         fields::fq12_target::Fq12Target,
     };
