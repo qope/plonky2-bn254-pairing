@@ -40,7 +40,6 @@ where
 #[cfg(test)]
 mod test {
     use ark_bn254::{G1Affine, G2Affine};
-    use ark_ec::pairing::Pairing;
     use ark_std::UniformRand;
     use plonky2::{
         field::goldilocks_field::GoldilocksField,
