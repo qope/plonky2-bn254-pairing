@@ -366,25 +366,4 @@ mod tests {
         let r_native = mock_pairing(P0, P1);
         assert_eq!(r, r_native);
     }
-
-    // #[test]
-    // fn test_pairing() {
-    //     use bn::{pairing, AffineG1, AffineG2, Fq, Fq2, G1};
-
-    //     let g1_generator = G1Affine::generator();
-    //     let g2_generator = G2Affine::generator();
-
-    //     let p = AffineG1::new(Fq::one(), Fq::from_str("2").unwrap()).unwrap();
-
-    //     let x_c0 = BigUint::from(g2_generator.x.c0).to_str_radix(10);
-    //     let x_c1 = BigUint::from(g2_generator.x.c1).to_str_radix(10);
-    //     let y_c0 = BigUint::from(g2_generator.y.c0).to_str_radix(10);
-    //     let y_c1 = BigUint::from(g2_generator.y.c1).to_str_radix(10);
-    //     let x = Fq2::new(Fq::from_str(&x_c0).unwrap(), Fq::from_str(&x_c1).unwrap());
-    //     let y = Fq2::new(Fq::from_str(&y_c0).unwrap(), Fq::from_str(&y_c1).unwrap());
-    //     let q = AffineG2::new(x, y).unwrap();
-    //     let r = pairing(p.into(), q.into());
-    //     // r
-    //     // dbg!(r);
-    // }
 }
