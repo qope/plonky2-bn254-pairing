@@ -370,9 +370,7 @@ mod tests {
 
     use super::miller_loop;
     use crate::{
-        miller_loop_native::{
-            miller_loop as miller_loop_native, multi_miller_loop as multi_miller_loop_native,
-        },
+        miller_loop_native::{miller_loop_native, multi_miller_loop_native},
         miller_loop_target::multi_miller_loop,
     };
     use plonky2_bn254::{

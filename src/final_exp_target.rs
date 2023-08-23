@@ -192,7 +192,7 @@ mod tests {
     };
 
     use crate::final_exp_target::frobenius_map;
-    use crate::miller_loop_native::miller_loop as miller_loop_native;
+    use crate::miller_loop_native::miller_loop_native;
     use crate::{
         final_exp_native::{final_exp as final_exp_native, frobenius_map as frobenius_map_native},
         final_exp_target::final_exp,

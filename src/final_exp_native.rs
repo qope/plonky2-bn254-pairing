@@ -220,7 +220,7 @@ mod tests {
     use ark_bn254::{Fr, G1Affine, G2Affine};
     use ark_ec::AffineRepr;
 
-    use crate::miller_loop_native::{miller_loop, multi_miller_loop};
+    use crate::miller_loop_native::{miller_loop_native, multi_miller_loop_native};
     use plonky2_bn254::fields::debug_tools::print_ark_fq;
 
     use super::final_exp;
@@ -229,7 +229,7 @@ mod tests {
     fn test_pairing_final() {
         let Q = G2Affine::generator();
         let P = G1Affine::generator();
-        let m = miller_loop(&Q, &P);
+        let m = miller_loop_native(&Q, &P);
         let r = final_exp(m);
         print_ark_fq(r.coeffs[0], "r.coeffs[0]".to_string());
     }
@@ -247,10 +247,10 @@ mod tests {
         let P1: G1Affine = G1.mul(s * t).into();
         let Q1 = -G2;
 
-        let m = multi_miller_loop(vec![(&P0, &Q0), (&P1, &Q1)]);
+        let m = multi_miller_loop_native(vec![(&P0, &Q0), (&P1, &Q1)]);
 
-        let m0 = miller_loop(&Q0, &P0);
-        let m1 = miller_loop(&Q1, &P1);
+        let m0 = miller_loop_native(&Q0, &P0);
+        let m1 = miller_loop_native(&Q1, &P1);
 
         assert_eq!(m, m0 * m1);
         let r0 = final_exp(m0);
