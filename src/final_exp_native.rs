@@ -14,7 +14,7 @@ use crate::miller_loop_native::conjugate_fp2;
 
 pub const BN_X: u64 = 4965661367192848881;
 
-pub fn frobenius_map(a: MyFq12, power: usize) -> MyFq12 {
+pub fn frobenius_map_native(a: MyFq12, power: usize) -> MyFq12 {
     let neg_one: BigUint = Fq::from(-1).into();
     let modulus = neg_one + BigUint::from(1u64);
     assert_eq!(modulus.clone() % 4u64, BigUint::from(3u64));
@@ -53,7 +53,7 @@ pub fn frobenius_map(a: MyFq12, power: usize) -> MyFq12 {
     }
 }
 
-pub fn pow(a: MyFq12, exp: Vec<u64>) -> MyFq12 {
+pub fn pow_native(a: MyFq12, exp: Vec<u64>) -> MyFq12 {
     let mut res = a.clone();
     let mut is_started = false;
     let naf = get_naf(exp);
@@ -127,22 +127,22 @@ pub fn get_naf(mut exp: Vec<u64>) -> Vec<i8> {
     naf
 }
 
-pub fn hard_part_BN(m: MyFq12) -> MyFq12 {
-    let mp = frobenius_map(m, 1);
-    let mp2 = frobenius_map(m, 2);
-    let mp3 = frobenius_map(m, 3);
+fn hard_part_BN_native(m: MyFq12) -> MyFq12 {
+    let mp = frobenius_map_native(m, 1);
+    let mp2 = frobenius_map_native(m, 2);
+    let mp3 = frobenius_map_native(m, 3);
 
     let mp2_mp3 = mp2 * mp3;
     let y0 = mp * mp2_mp3;
     let y1 = conjugate_fp12(m);
-    let mx = pow(m, vec![BN_X]);
-    let mxp = frobenius_map(mx, 1);
-    let mx2 = pow(mx.clone(), vec![BN_X]);
-    let mx2p = frobenius_map(mx2, 1);
-    let y2 = frobenius_map(mx2, 2);
+    let mx = pow_native(m, vec![BN_X]);
+    let mxp = frobenius_map_native(mx, 1);
+    let mx2 = pow_native(mx.clone(), vec![BN_X]);
+    let mx2p = frobenius_map_native(mx2, 1);
+    let y2 = frobenius_map_native(mx2, 2);
     let y5 = conjugate_fp12(mx2);
-    let mx3 = pow(mx2, vec![BN_X]);
-    let mx3p = frobenius_map(mx3, 1);
+    let mx3 = pow_native(mx2, vec![BN_X]);
+    let mx3p = frobenius_map_native(mx3, 1);
 
     let y3 = conjugate_fp12(mxp);
     let mx_mx2p = mx * mx2p;
@@ -192,7 +192,7 @@ pub fn frob_coeffs(index: usize) -> Fq2 {
 }
 
 // out = in^{ (q^6 - 1)*(q^2 + 1) }
-pub fn easy_part<'v>(a: MyFq12) -> MyFq12 {
+fn easy_part<'v>(a: MyFq12) -> MyFq12 {
     let f1 = conjugate_fp12(a);
     let f2 = {
         let f1_fp12: Fq12 = f1.into();
@@ -200,16 +200,15 @@ pub fn easy_part<'v>(a: MyFq12) -> MyFq12 {
         let divided = f1_fp12 / a_fp12;
         divided.into()
     };
-    let f3 = frobenius_map(f2, 2);
+    let f3 = frobenius_map_native(f2, 2);
     let f = f3 * f2;
     f
 }
 
 // out = in^{(q^12 - 1)/r}
-pub fn final_exp(a: MyFq12) -> MyFq12 {
+pub fn final_exp_native(a: MyFq12) -> MyFq12 {
     let f0 = easy_part(a);
-
-    let f = hard_part_BN(f0);
+    let f = hard_part_BN_native(f0);
     f
 }
 
@@ -217,20 +216,24 @@ pub fn final_exp(a: MyFq12) -> MyFq12 {
 mod tests {
     use std::ops::Mul;
 
-    use ark_bn254::{Fr, G1Affine, G2Affine};
+    use ark_bn254::{Fq, Fq12, Fr, G1Affine, G2Affine};
     use ark_ec::AffineRepr;
+    use ark_ff::Field;
+    use ark_std::UniformRand;
+    use num_bigint::BigUint;
+    use starky_bn254::utils::biguint_to_bits;
 
     use crate::miller_loop_native::{miller_loop_native, multi_miller_loop_native};
     use plonky2_bn254::fields::debug_tools::print_ark_fq;
 
-    use super::final_exp;
+    use super::{final_exp_native, pow_native, BN_X};
 
     #[test]
     fn test_pairing_final() {
         let Q = G2Affine::generator();
         let P = G1Affine::generator();
         let m = miller_loop_native(&Q, &P);
-        let r = final_exp(m);
+        let r = final_exp_native(m);
         print_ark_fq(r.coeffs[0], "r.coeffs[0]".to_string());
     }
 
@@ -253,10 +256,32 @@ mod tests {
         let m1 = miller_loop_native(&Q1, &P1);
 
         assert_eq!(m, m0 * m1);
-        let r0 = final_exp(m0);
-        let r1 = final_exp(m1);
+        let r0 = final_exp_native(m0);
+        let r1 = final_exp_native(m1);
         let r_sep = r0 * r1;
-        let r_mul = final_exp(m);
+        let r_mul = final_exp_native(m);
         assert_eq!(r_sep, r_mul);
+    }
+
+    #[test]
+    fn test_pow() {
+        let rng = &mut rand::thread_rng();
+        let x = Fq12::rand(rng);
+        let output: Fq12 = pow_native(x.into(), vec![BN_X]).into();
+        let output2 = x.pow(&[BN_X]);
+        assert_eq!(output, output2);
+
+        let final_x: Fq12 = final_exp_native(x.into()).into();
+
+        use ark_ff::PrimeField;
+        let p: BigUint = Fq::MODULUS.into();
+        let r: BigUint = Fr::MODULUS.into();
+        let exp = (p.pow(12) - 1u32) / r;
+        let final_x2 = x.pow(&exp.to_u64_digits());
+
+        let exp_bits = biguint_to_bits(&exp, 256 * 16);
+        dbg!(exp_bits.len());
+
+        assert_eq!(final_x, final_x2);
     }
 }
