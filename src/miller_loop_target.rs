@@ -10,9 +10,7 @@ use plonky2::{
 };
 use plonky2_bn254::curves::{g1curve_target::G1Target, g2curve_target::G2Target};
 use plonky2_bn254::fields::fq12_target::Fq12Target;
-use plonky2_bn254::fields::{
-    debug_tools::print_fq_target, fq2_target::Fq2Target, fq_target::FqTarget,
-};
+use plonky2_bn254::fields::{fq2_target::Fq2Target, fq_target::FqTarget};
 
 const XI_0: usize = 9;
 
@@ -212,8 +210,6 @@ fn miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
     f = fp12_multiply_with_line_unequal(builder, &f, (&R, &Q_1), P);
     R = R.add(builder, &Q_1);
     f = fp12_multiply_with_line_unequal(builder, &f, (&R, &neg_Q_2), P);
-
-    print_fq_target(builder, &f.coeffs[0], "final_f".to_string());
 
     f
 }

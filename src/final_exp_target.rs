@@ -138,10 +138,6 @@ where
     T0 = T0.mul(builder, &T0);
     T0 = T0.mul(builder, &T1);
 
-    // padd
-    exp_inputs.push(exp_inputs.last().unwrap().clone());
-    exp_outputs.push(exp_outputs.last().unwrap().clone());
-
     let exp_outputs2 = fq12_exp_u64_circuit::<F, C, D>(builder, &exp_inputs);
     exp_outputs
         .iter()

@@ -39,6 +39,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::time::Instant;
+
     use ark_bn254::{G1Affine, G2Affine};
     use ark_std::UniformRand;
     use plonky2::{
@@ -71,8 +73,10 @@ mod test {
         let output_t = pairing_circuit::<F, C, D>(&mut builder, p_t, q_t);
 
         let data = builder.build::<C>();
+        let now = Instant::now();
         let mut pw = PartialWitness::<F>::new();
         output_t.set_witness(&mut pw, &output);
         let _proof = data.prove(pw).unwrap();
+        println!("proving time: {:?}", now.elapsed());
     }
 }
