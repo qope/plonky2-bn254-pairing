@@ -1,8 +1,5 @@
 #![allow(non_snake_case)]
-use crate::curves::{g1curve_target::G1Target, g2curve_target::G2Target};
-use crate::fields::fq12_target::Fq12Target;
-use crate::fields::{debug_tools::print_fq_target, fq2_target::Fq2Target, fq_target::FqTarget};
-use crate::pairing::miller_loop_native::SIX_U_PLUS_2_NAF;
+use crate::miller_loop_native::SIX_U_PLUS_2_NAF;
 use ark_bn254::{Fq, Fq2};
 use ark_ff::Field;
 use ark_std::One;
@@ -11,10 +8,13 @@ use plonky2::{
     field::extension::Extendable, hash::hash_types::RichField,
     plonk::circuit_builder::CircuitBuilder,
 };
+use plonky2_bn254::curves::{g1curve_target::G1Target, g2curve_target::G2Target};
+use plonky2_bn254::fields::fq12_target::Fq12Target;
+use plonky2_bn254::fields::{fq2_target::Fq2Target, fq_target::FqTarget};
 
 const XI_0: usize = 9;
 
-pub fn sparse_line_function_unequal<F: RichField + Extendable<D>, const D: usize>(
+fn sparse_line_function_unequal<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     Q: (&G2Target<F, D>, &G2Target<F, D>),
     P: &G1Target<F, D>,
@@ -33,7 +33,7 @@ pub fn sparse_line_function_unequal<F: RichField + Extendable<D>, const D: usize
     vec![None, None, Some(out2), Some(out3), None, Some(out5)]
 }
 
-pub fn sparse_line_function_equal<F: RichField + Extendable<D>, const D: usize>(
+fn sparse_line_function_equal<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     Q: &G2Target<F, D>,
     P: &G1Target<F, D>,
@@ -54,7 +54,7 @@ pub fn sparse_line_function_equal<F: RichField + Extendable<D>, const D: usize>(
     vec![Some(out0), None, None, Some(out3), Some(out4), None]
 }
 
-pub fn sparse_fp12_multiply<F: RichField + Extendable<D>, const D: usize>(
+fn sparse_fp12_multiply<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     a: &Fq12Target<F, D>,
     b: Vec<Option<Fq2Target<F, D>>>,
@@ -109,7 +109,7 @@ pub fn sparse_fp12_multiply<F: RichField + Extendable<D>, const D: usize>(
     }
 }
 
-pub fn fp12_multiply_with_line_unequal<F: RichField + Extendable<D>, const D: usize>(
+fn fp12_multiply_with_line_unequal<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     g: &Fq12Target<F, D>,
     Q: (&G2Target<F, D>, &G2Target<F, D>),
@@ -119,7 +119,7 @@ pub fn fp12_multiply_with_line_unequal<F: RichField + Extendable<D>, const D: us
     sparse_fp12_multiply(builder, g, line)
 }
 
-pub fn fp12_multiply_with_line_equal<F: RichField + Extendable<D>, const D: usize>(
+fn fp12_multiply_with_line_equal<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     g: &Fq12Target<F, D>,
     Q: &G2Target<F, D>,
@@ -129,7 +129,7 @@ pub fn fp12_multiply_with_line_equal<F: RichField + Extendable<D>, const D: usiz
     sparse_fp12_multiply(builder, g, line)
 }
 
-pub fn miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
+fn miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     Q: &G2Target<F, D>,
     P: &G1Target<F, D>,
@@ -211,12 +211,10 @@ pub fn miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
     R = R.add(builder, &Q_1);
     f = fp12_multiply_with_line_unequal(builder, &f, (&R, &neg_Q_2), P);
 
-    print_fq_target(builder, &f.coeffs[0], "final_f".to_string());
-
     f
 }
 
-pub fn multi_miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
+fn multi_miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     pairs: Vec<(&G1Target<F, D>, &G2Target<F, D>)>,
     pseudo_binary_encoding: &[i8],
@@ -312,7 +310,7 @@ pub fn multi_miller_loop_BN<F: RichField + Extendable<D>, const D: usize>(
     f
 }
 
-pub fn twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
+fn twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     Q: &G2Target<F, D>,
     c2: Fq2Target<F, D>,
@@ -322,10 +320,10 @@ pub fn twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
     let frob_y = Q.y.conjugate(builder);
     let out_x = c2.mul(builder, &frob_x);
     let out_y = c3.mul(builder, &frob_y);
-    G2Target::construct(out_x, out_y)
+    G2Target::new(out_x, out_y)
 }
 
-pub fn neg_twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
+fn neg_twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     Q: &G2Target<F, D>,
     c2: Fq2Target<F, D>,
@@ -335,10 +333,10 @@ pub fn neg_twisted_frobenius<F: RichField + Extendable<D>, const D: usize>(
     let neg_frob_y = Q.y.neg_conjugate(builder);
     let out_x = c2.mul(builder, &frob_x);
     let out_y = c3.mul(builder, &neg_frob_y);
-    G2Target::construct(out_x, out_y)
+    G2Target::new(out_x, out_y)
 }
 
-pub fn miller_loop<F: RichField + Extendable<D>, const D: usize>(
+pub fn miller_loop_circuit<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     Q: &G2Target<F, D>,
     P: &G1Target<F, D>,
@@ -346,7 +344,7 @@ pub fn miller_loop<F: RichField + Extendable<D>, const D: usize>(
     miller_loop_BN(builder, Q, P, &SIX_U_PLUS_2_NAF)
 }
 
-pub fn multi_miller_loop<F: RichField + Extendable<D>, const D: usize>(
+pub fn multi_miller_loop_circuit<F: RichField + Extendable<D>, const D: usize>(
     builder: &mut CircuitBuilder<F, D>,
     pairs: Vec<(&G1Target<F, D>, &G2Target<F, D>)>,
 ) -> Fq12Target<F, D> {
@@ -366,14 +364,12 @@ mod tests {
         },
     };
 
-    use super::miller_loop;
-    use crate::pairing::{
-        miller_loop_native::{
-            miller_loop as miller_loop_native, multi_miller_loop as multi_miller_loop_native,
-        },
-        miller_loop_target::multi_miller_loop,
-    };
+    use super::miller_loop_circuit;
     use crate::{
+        miller_loop_native::{miller_loop_native, multi_miller_loop_native},
+        miller_loop_target::multi_miller_loop_circuit,
+    };
+    use plonky2_bn254::{
         curves::{g1curve_target::G1Target, g2curve_target::G2Target},
         fields::fq12_target::Fq12Target,
     };
@@ -395,7 +391,7 @@ mod tests {
         let Q_t = G2Target::constant(&mut builder, Q);
         let P_t = G1Target::constant(&mut builder, P);
 
-        let r_t = miller_loop(&mut builder, &Q_t, &P_t);
+        let r_t = miller_loop_circuit(&mut builder, &Q_t, &P_t);
         let r_expected_t = Fq12Target::constant(&mut builder, r_expected.into());
 
         Fq12Target::connect(&mut builder, &r_t, &r_expected_t);
@@ -424,7 +420,7 @@ mod tests {
         let Q1_t = G2Target::constant(&mut builder, Q1);
         let P1_t = G1Target::constant(&mut builder, P1);
 
-        let r_t = multi_miller_loop(&mut builder, vec![(&P0_t, &Q0_t), (&P1_t, &Q1_t)]);
+        let r_t = multi_miller_loop_circuit(&mut builder, vec![(&P0_t, &Q0_t), (&P1_t, &Q1_t)]);
         let r_expected_t = Fq12Target::constant(&mut builder, r_expected.into());
 
         Fq12Target::connect(&mut builder, &r_t, &r_expected_t);

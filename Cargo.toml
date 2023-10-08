@@ -13,9 +13,6 @@ ark-std = "0.4.0"
 num-bigint = "0.4.3"
 num-traits = "0.2"
 rand = "0.8.5"
-plonky2_ecdsa={git="https://github.com/qope/plonky2-ecdsa.git"}
-plonky2_u32="0.1.0"
-plonky2="0.1.2"
 num = "0.4.0"
 serde = { version = "1.0.160", features = ["derive"] }
 itertools = "0.10.5"
@@ -23,3 +20,9 @@ anyhow = "1.0.71"
 hex = "0.4.3"
 bitvec = "1"
 rayon = "1.7.0"
+plonky2 = {git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
+plonky2_u32={git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
+plonky2_ecdsa={git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
+starky = {git="https://github.com/InternetMaximalism/plonky2", rev="541e127"}
+plonky2-bn254={git="https://github.com/qope/plonky2-bn254.git", rev="d616d57"}
+starky-bn254={git="http://github.com/qope/starky-bn254", rev="2165be0"}

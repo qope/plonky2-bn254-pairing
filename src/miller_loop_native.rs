@@ -5,9 +5,12 @@ use ark_ff::{Field, Fp2};
 use ark_std::{One, Zero};
 use num_bigint::BigUint;
 
-use crate::fields::native::MyFq12;
+use plonky2_bn254::fields::native::MyFq12;
 
-pub fn sparse_line_function_unequal(Q: (&G2Affine, &G2Affine), P: &G1Affine) -> Vec<Option<Fq2>> {
+fn sparse_line_function_unequal_native(
+    Q: (&G2Affine, &G2Affine),
+    P: &G1Affine,
+) -> Vec<Option<Fq2>> {
     let (x_1, y_1) = (&Q.0.x, &Q.0.y);
     let (x_2, y_2) = (&Q.1.x, &Q.1.y);
     let (x, y) = (&P.x, &P.y);
@@ -24,28 +27,23 @@ pub fn sparse_line_function_unequal(Q: (&G2Affine, &G2Affine), P: &G1Affine) -> 
     vec![None, None, Some(out2), Some(out3), None, Some(out5)]
 }
 
-pub fn sparse_line_function_equal(Q: &G2Affine, P: &G1Affine) -> Vec<Option<Fq2>> {
+fn sparse_line_function_equal_native(Q: &G2Affine, P: &G1Affine) -> Vec<Option<Fq2>> {
     let (x, y) = (&Q.x, &Q.y);
-
     let x_sq = x * x;
-
     let x_cube = x_sq * x;
     let three_x_cu = x_cube * Fq2::from(3);
     let y_sq = y * y;
     let two_y_sq = y_sq * Fq2::from(2);
     let out0_left = three_x_cu - two_y_sq;
     let out0 = out0_left * Fq2::new(Fq::from(9), Fq::one());
-
     let x_sq_px: Fq2 = x_sq * Fq2::new(P.x, Fq::zero());
     let out4 = x_sq_px * Fq2::from(-3);
-
     let y_py = y * Fq2::new(P.y, Fq::zero());
     let out3 = y_py * Fq2::from(2);
-
     vec![Some(out0), None, None, Some(out3), Some(out4), None]
 }
 
-pub fn sparse_fp12_multiply(a: &MyFq12, b: Vec<Option<Fq2>>) -> MyFq12 {
+fn sparse_fp12_multiply_native(a: &MyFq12, b: Vec<Option<Fq2>>) -> MyFq12 {
     let mut a_fp2_coeffs = Vec::with_capacity(6);
     for i in 0..6 {
         a_fp2_coeffs.push(Fq2::new(a.coeffs[i].clone(), a.coeffs[i + 6].clone()));
@@ -68,7 +66,6 @@ pub fn sparse_fp12_multiply(a: &MyFq12, b: Vec<Option<Fq2>>) -> MyFq12 {
             };
         }
     }
-
     let mut out_fp2 = Vec::with_capacity(6);
     for i in 0..6 {
         let prod = if i != 5 {
@@ -76,7 +73,7 @@ pub fn sparse_fp12_multiply(a: &MyFq12, b: Vec<Option<Fq2>>) -> MyFq12 {
                 .as_ref()
                 .map(|a| a * Fq2::new(Fq::from(9), Fq::one()));
             match (prod_2d[i].as_ref(), eval_w6) {
-                (None, b) => b.unwrap(), // Our current use cases of 235 and 034 sparse multiplication always result in non-None value
+                (None, b) => b.unwrap(),
                 (Some(a), None) => a.clone(),
                 (Some(a), Some(b)) => a + b,
             }
@@ -93,27 +90,26 @@ pub fn sparse_fp12_multiply(a: &MyFq12, b: Vec<Option<Fq2>>) -> MyFq12 {
     for fp2_coeff in &out_fp2 {
         out_coeffs.push(fp2_coeff.c1.clone());
     }
-
     MyFq12 {
         coeffs: out_coeffs.try_into().unwrap(),
     }
 }
 
-pub fn fp12_multiply_with_line_unequal(
+fn fp12_multiply_with_line_unequal_native(
     g: &MyFq12,
     Q: (&G2Affine, &G2Affine),
     P: &G1Affine,
 ) -> MyFq12 {
-    let line: Vec<Option<Fq2>> = sparse_line_function_unequal(Q, P);
-    sparse_fp12_multiply(g, line)
+    let line: Vec<Option<Fq2>> = sparse_line_function_unequal_native(Q, P);
+    sparse_fp12_multiply_native(g, line)
 }
 
-pub fn fp12_multiply_with_line_equal(g: &MyFq12, Q: &G2Affine, P: &G1Affine) -> MyFq12 {
-    let line: Vec<Option<Fq2>> = sparse_line_function_equal(Q, P);
-    sparse_fp12_multiply(g, line)
+fn fp12_multiply_with_line_equal_native(g: &MyFq12, Q: &G2Affine, P: &G1Affine) -> MyFq12 {
+    let line: Vec<Option<Fq2>> = sparse_line_function_equal_native(Q, P);
+    sparse_fp12_multiply_native(g, line)
 }
 
-pub fn miller_loop_BN(Q: &G2Affine, P: &G1Affine, pseudo_binary_encoding: &[i8]) -> MyFq12 {
+fn miller_loop_BN_native(Q: &G2Affine, P: &G1Affine, pseudo_binary_encoding: &[i8]) -> MyFq12 {
     let mut i = pseudo_binary_encoding.len() - 1;
     while pseudo_binary_encoding[i] == 0 {
         i -= 1;
@@ -128,7 +124,7 @@ pub fn miller_loop_BN(Q: &G2Affine, P: &G1Affine, pseudo_binary_encoding: &[i8])
     i -= 1;
 
     // initialize the first line function into Fq12 point
-    let sparse_f = sparse_line_function_equal(&R, P);
+    let sparse_f = sparse_line_function_equal_native(&R, P);
     assert_eq!(sparse_f.len(), 6);
 
     let zero_fp = Fq::zero();
@@ -155,7 +151,7 @@ pub fn miller_loop_BN(Q: &G2Affine, P: &G1Affine, pseudo_binary_encoding: &[i8])
     loop {
         if i != last_index - 1 {
             let f_sq = f * f;
-            f = fp12_multiply_with_line_equal(&f_sq, &R, P);
+            f = fp12_multiply_with_line_equal_native(&f_sq, &R, P);
         }
 
         R = (R + R).into();
@@ -167,7 +163,7 @@ pub fn miller_loop_BN(Q: &G2Affine, P: &G1Affine, pseudo_binary_encoding: &[i8])
             } else {
                 -Q.clone()
             };
-            f = fp12_multiply_with_line_unequal(&f, (&R, &sign_Q), P);
+            f = fp12_multiply_with_line_unequal_native(&f, (&R, &sign_Q), P);
             R = (R + sign_Q).into();
         }
         if i == 0 {
@@ -186,14 +182,14 @@ pub fn miller_loop_BN(Q: &G2Affine, P: &G1Affine, pseudo_binary_encoding: &[i8])
 
     let Q_1 = twisted_frobenius(Q, c2, c3);
     let neg_Q_2 = neg_twisted_frobenius(&Q_1, c2, c3);
-    f = fp12_multiply_with_line_unequal(&f, (&R, &Q_1), P);
+    f = fp12_multiply_with_line_unequal_native(&f, (&R, &Q_1), P);
     R = (R + Q_1).into();
-    f = fp12_multiply_with_line_unequal(&f, (&R, &neg_Q_2), P);
+    f = fp12_multiply_with_line_unequal_native(&f, (&R, &neg_Q_2), P);
 
     f
 }
 
-pub fn multi_miller_loop_BN(
+fn multi_miller_loop_BN_native(
     pairs: Vec<(&G1Affine, &G2Affine)>,
     pseudo_binary_encoding: &[i8],
 ) -> MyFq12 {
@@ -208,7 +204,7 @@ pub fn multi_miller_loop_BN(
 
     // initialize the first line function into Fq12 point
     let mut f = {
-        let sparse_f = sparse_line_function_equal(pairs[0].1, pairs[0].0);
+        let sparse_f = sparse_line_function_equal_native(pairs[0].1, pairs[0].0);
         assert_eq!(sparse_f.len(), 6);
 
         let zero_fp = Fq::zero();
@@ -233,7 +229,7 @@ pub fn multi_miller_loop_BN(
     };
 
     for &(a, b) in pairs.iter().skip(1) {
-        f = fp12_multiply_with_line_equal(&f, b, a);
+        f = fp12_multiply_with_line_equal_native(&f, b, a);
     }
 
     i -= 1;
@@ -242,7 +238,7 @@ pub fn multi_miller_loop_BN(
         if i != last_index - 1 {
             f = f * f;
             for (r, &(a, _)) in r.iter().zip(pairs.iter()) {
-                f = fp12_multiply_with_line_equal(&f, r, a);
+                f = fp12_multiply_with_line_equal_native(&f, r, a);
             }
         }
         for r in r.iter_mut() {
@@ -257,7 +253,7 @@ pub fn multi_miller_loop_BN(
                 } else {
                     neg_b
                 };
-                f = fp12_multiply_with_line_unequal(&f, (r, sign_b), a);
+                f = fp12_multiply_with_line_unequal_native(&f, (r, sign_b), a);
                 *r = (r.clone() + sign_b.clone()).into();
             }
         }
@@ -278,9 +274,9 @@ pub fn multi_miller_loop_BN(
     for (r, &(a, b)) in r.iter_mut().zip(pairs.iter()) {
         let b_1 = twisted_frobenius(b, c2, c3);
         let neg_b_2 = neg_twisted_frobenius(&b_1, c2, c3);
-        f = fp12_multiply_with_line_unequal(&f, (r, &b_1), a);
+        f = fp12_multiply_with_line_unequal_native(&f, (r, &b_1), a);
         *r = (r.clone() + b_1).into();
-        f = fp12_multiply_with_line_unequal(&f, (r, &neg_b_2), a);
+        f = fp12_multiply_with_line_unequal_native(&f, (r, &neg_b_2), a);
     }
     f
 }
@@ -299,7 +295,7 @@ pub fn neg_conjugate_fp2(x: Fq2) -> Fq2 {
     }
 }
 
-pub fn twisted_frobenius(Q: &G2Affine, c2: Fq2, c3: Fq2) -> G2Affine {
+fn twisted_frobenius(Q: &G2Affine, c2: Fq2, c3: Fq2) -> G2Affine {
     let frob_x = conjugate_fp2(Q.x);
     let frob_y = conjugate_fp2(Q.y);
     let out_x = c2 * frob_x;
@@ -307,7 +303,7 @@ pub fn twisted_frobenius(Q: &G2Affine, c2: Fq2, c3: Fq2) -> G2Affine {
     G2Affine::new(out_x, out_y)
 }
 
-pub fn neg_twisted_frobenius(Q: &G2Affine, c2: Fq2, c3: Fq2) -> G2Affine {
+fn neg_twisted_frobenius(Q: &G2Affine, c2: Fq2, c3: Fq2) -> G2Affine {
     let frob_x = conjugate_fp2(Q.x);
     let neg_frob_y = neg_conjugate_fp2(Q.y);
     let out_x = c2 * frob_x;
@@ -321,37 +317,53 @@ pub const SIX_U_PLUS_2_NAF: [i8; 65] = [
     0, 1, 0, 1, 1,
 ];
 
-pub fn miller_loop(Q: &G2Affine, P: &G1Affine) -> MyFq12 {
-    miller_loop_BN(Q, P, &SIX_U_PLUS_2_NAF)
+pub fn miller_loop_native(Q: &G2Affine, P: &G1Affine) -> MyFq12 {
+    miller_loop_BN_native(Q, P, &SIX_U_PLUS_2_NAF)
 }
 
-pub fn multi_miller_loop(pairs: Vec<(&G1Affine, &G2Affine)>) -> MyFq12 {
-    multi_miller_loop_BN(pairs, &SIX_U_PLUS_2_NAF)
+pub fn multi_miller_loop_native(pairs: Vec<(&G1Affine, &G2Affine)>) -> MyFq12 {
+    multi_miller_loop_BN_native(pairs, &SIX_U_PLUS_2_NAF)
 }
 
 #[cfg(test)]
 mod tests {
-    use ark_bn254::{G1Affine, G2Affine};
+    use ark_bn254::{Bn254, Fq12, G1Affine, G2Affine};
+    use ark_ec::{pairing::Pairing, AffineRepr};
     use ark_std::UniformRand;
 
-    use super::{miller_loop, multi_miller_loop};
+    use super::{miller_loop_native, multi_miller_loop_native};
 
     #[test]
     fn test_multi_miller_loop_native() {
         let rng = &mut rand::thread_rng();
         let P0 = G1Affine::rand(rng);
         let P1 = G1Affine::rand(rng);
-
         let Q0 = G2Affine::rand(rng);
         let Q1 = G2Affine::rand(rng);
-
-        let r0 = miller_loop(&Q0, &P0);
-        let r1 = miller_loop(&Q1, &P1);
-
+        let r0 = miller_loop_native(&Q0, &P0);
+        let r1 = miller_loop_native(&Q1, &P1);
         let r_expected = r0 * r1;
-
-        let r = multi_miller_loop(vec![(&P0, &Q0), (&P1, &Q1)]);
-
+        let r = multi_miller_loop_native(vec![(&P0, &Q0), (&P1, &Q1)]);
         assert_eq!(r, r_expected);
+    }
+
+    #[test]
+    fn test_miller_loop_comparison() {
+        let mock_pairing = |p: G1Affine, q: G2Affine| -> Fq12 {
+            let r0: Fq12 = Bn254::miller_loop(G1Affine::generator(), G2Affine::generator())
+                .0
+                .into();
+            let r1: Fq12 =
+                miller_loop_native(&G2Affine::generator(), &G1Affine::generator()).into();
+            let r: Fq12 = miller_loop_native(&q, &p).into();
+            r * r0 / r1
+        };
+
+        let mut rng = rand::thread_rng();
+        let P0 = G1Affine::rand(&mut rng);
+        let P1 = G2Affine::rand(&mut rng);
+        let r: Fq12 = Bn254::miller_loop(P0, P1).0;
+        let r_native = mock_pairing(P0, P1);
+        assert_eq!(r, r_native);
     }
 }
