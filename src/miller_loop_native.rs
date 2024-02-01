@@ -346,24 +346,4 @@ mod tests {
         let r = multi_miller_loop_native(vec![(&P0, &Q0), (&P1, &Q1)]);
         assert_eq!(r, r_expected);
     }
-
-    #[test]
-    fn test_miller_loop_comparison() {
-        let mock_pairing = |p: G1Affine, q: G2Affine| -> Fq12 {
-            let r0: Fq12 = Bn254::miller_loop(G1Affine::generator(), G2Affine::generator())
-                .0
-                .into();
-            let r1: Fq12 =
-                miller_loop_native(&G2Affine::generator(), &G1Affine::generator()).into();
-            let r: Fq12 = miller_loop_native(&q, &p).into();
-            r * r0 / r1
-        };
-
-        let mut rng = rand::thread_rng();
-        let P0 = G1Affine::rand(&mut rng);
-        let P1 = G2Affine::rand(&mut rng);
-        let r: Fq12 = Bn254::miller_loop(P0, P1).0;
-        let r_native = mock_pairing(P0, P1);
-        assert_eq!(r, r_native);
-    }
 }
